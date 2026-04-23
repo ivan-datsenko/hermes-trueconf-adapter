@@ -51,7 +51,7 @@ It will install, configure and save everything automatically.
 | `TRUECONF_USE_SSL` | `true` for HTTPS (default) |
 | `TRUECONF_VERIFY_SSL` | `false` for self-signed certificates |
 | `TRUECONF_ALLOW_ALL_USERS` | `true` — everyone, `false` — whitelist only |
-| `TRUECONF_ALLOWED_USERS` | Comma-separated list of allowed emails |
+| `TRUECONF_ALLOWED_USERS` | Comma-separated list of allowed TrueConf ID's |
 
 ## Update protection
 
