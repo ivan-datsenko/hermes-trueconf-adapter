@@ -51,7 +51,7 @@ bash install.sh
 | `TRUECONF_USE_SSL` | `true` для HTTPS (по умолчанию) |
 | `TRUECONF_VERIFY_SSL` | `false` для самоподписанных сертификатов |
 | `TRUECONF_ALLOW_ALL_USERS` | `true` — все, `false` — только разрешённые |
-| `TRUECONF_ALLOWED_USERS` | Список email через запятую |
+| `TRUECONF_ALLOWED_USERS` | Список TrueConf ID через запятую |
 
 ## Защита от обновлений
 
