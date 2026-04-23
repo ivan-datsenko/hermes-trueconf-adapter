@@ -2,7 +2,7 @@
 
 
 
-# TrueConf Adapter🔌 for Hermes-Agent
+# TrueConf Adapter🔌 for Hermes-Agent 🤖
 
 [English](README_EN.md) | Русский
 
