@@ -1,5 +1,7 @@
 # TrueConf Adapter for Hermes Agent
 
+[English](README_EN.md) | Русский
+
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![Status](https://img.shields.io/badge/status-production--ready-brightgreen)
 
@@ -23,7 +25,7 @@
 ## Установка за 1 минуту
 
 ```bash
-git clone https://github.com/<owner>/trueconf-adapter.git /tmp/trueconf-adapter
+git clone https://github.com/ivan-datsenko/hermes-trueconf-adapter.git /tmp/trueconf-adapter
 cd /tmp/trueconf-adapter
 bash install.sh
 ```
@@ -66,8 +68,6 @@ bash ~/.hermes/plugins/trueconf-adapter/apply_patches.sh
 hermes gateway stop && hermes gateway start
 ```
 
-> ⚠️ Не используйте `hermes gateway restart` — он может зависнуть с TrueConf.
-
 ## Проверка
 
 ```bash
@@ -87,22 +87,14 @@ ps aux | grep "hermes.*gateway" | grep -v grep
 tail -f ~/.hermes/logs/agent.log | grep -i trueconf
 ```
 
-## История версий
-
-**v1.0.0** — Первый релиз: полный адаптер с защитой от обновлений, файлами, edit_message, интерактивным установщиком
-
-**v3.0.0** — Интерактивный установщик (задаёт вопросы)
-
-**v2.0.0** — Полная поддержка файлов
-
-
 ## Структура плагина
 
 ```
-trueconf-adapter/
+hermes-trueconf-adapter/
 ├── apply_patches.sh          # Идемпотентный патчер (18 проверок)
 ├── install.sh                # Интерактивный установщик
-├── README.md                 # Документация
+├── README.md                 # Документация (русский)
+├── README_EN.md              # Documentation (English)
 ├── dotenv.template           # Шаблон .env
 ├── gateway/platforms/
 │   └── trueconf.py           # Основной адаптер (1270+ строк)
