@@ -1,0 +1,38 @@
+# ============================================
+# TrueConf Adapter Configuration
+# ============================================
+# Copy these variables to your ~/.hermes/.env file
+# and fill in your actual values.
+#
+# REQUIRED: TRUECONF_SERVER + (TRUECONF_TOKEN or TRUECONF_USERNAME+TRUECONF_PASSWORD)
+# ============================================
+
+# TrueConf Server Address (REQUIRED)
+# Examples: your-server.company.com, trueconf.example.com
+TRUECONF_SERVER=your-server.example.com
+
+# Authentication Method 1: Username + Password
+TRUECONF_USERNAME=your_bot_username
+TRUECONF_PASSWORD=your_password_here
+
+# Authentication Method 2: OAuth Token (alternative to username/password)
+# If set, username/password are ignored
+# TRUECONF_TOKEN=your_oauth_token_here
+
+# Connection Settings
+TRUECONF_PORT=443
+TRUECONF_USE_SSL=true
+TRUECONF_VERIFY_SSL=false
+
+# Access Control
+# Allow all users to interact with the bot (default: false for security)
+TRUECONF_ALLOW_ALL_USERS=true
+
+# Comma-separated list of allowed user IDs (used when ALLOW_ALL_USERS=false)
+# Example: user1@company.com,user2@company.com
+# TRUECONF_ALLOWED_USERS=
+
+# Home Channel (optional — the chat where the bot sends proactive messages)
+# Get chat_id from bot logs or TrueConf client
+# TRUECONF_HOME_CHANNEL=chat_id_here
+# TRUECONF_HOME_CHANNEL_NAME=Home

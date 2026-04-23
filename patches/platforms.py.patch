@@ -1,0 +1,6 @@
+--- Patch for hermes_cli/platforms.py ---
+Добавить TrueConf в словарь PLATFORMS.
+
+В OrderedDict PLATFORMS (после последней платформы, перед закрывающей скобкой) добавить:
+
+    ("trueconf",       PlatformInfo(label="📹 TrueConf",        default_toolset="hermes-trueconf")),

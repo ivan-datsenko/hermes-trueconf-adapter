@@ -1,0 +1,35 @@
+--- Patch for tools/send_message_tool.py ---
+Добавить TrueConf в маппинг платформ и функцию отправки.
+
+1. В словаре маппинга платформ (около строки 200) добавить:
+    "trueconf": Platform.TRUECONF,
+
+2. Добавить функцию _send_trueconf() (после других _send_* функций):
+
+    async def _send_trueconf(
+        chat_id: str,
+        message: str,
+        reply_to: Optional[str] = None,
+        platform_config: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Send a message to a TrueConf chat."""
+        from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
+        
+        if not check_trueconf_requirements():
+            return {"success": False, "error": "python-trueconf-bot not installed"}
+        
+        adapter = _get_trueconf_adapter()
+        if not adapter:
+            return {"success": False, "error": "TrueConf adapter not available"}
+        
+        try:
+            result = await adapter.send(
+                chat_id=chat_id,
+                content=message,
+                reply_to=reply_to,
+            )
+            return {"success": True, "platform": "trueconf", "chat_id": chat_id}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+3. В основной функции send добавить вызов _send_trueconf для платформы trueconf.

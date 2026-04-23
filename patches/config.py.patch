@@ -1,0 +1,51 @@
+--- Patch for gateway/config.py ---
+Добавить TrueConf в Platform enum и auto-detect блок.
+
+1. В enum Platform (около строки 50-70) добавить:
+    TRUECONF = "trueconf"
+
+2. В auto_detect_from_env() (после блока других платформ) добавить:
+    trueconf_server = os.getenv("TRUECONF_SERVER", "").strip()
+    trueconf_token = os.getenv("TRUECONF_TOKEN", "").strip()
+    trueconf_username = os.getenv("TRUECONF_USERNAME", "").strip()
+    trueconf_password = os.getenv("TRUECONF_PASSWORD", "").strip()
+    if trueconf_server and (trueconf_token or (trueconf_username and trueconf_password)):
+        if Platform.TRUECONF not in config.platforms:
+            config.platforms[Platform.TRUECONF] = PlatformConfig()
+        config.platforms[Platform.TRUECONF].enabled = True
+        if trueconf_token:
+            config.platforms[Platform.TRUECONF].token = trueconf_token
+        config.platforms[Platform.TRUECONF].extra["server"] = trueconf_server
+        if trueconf_username:
+            config.platforms[Platform.TRUECONF].extra["username"] = trueconf_username
+        if trueconf_password:
+            config.platforms[Platform.TRUECONF].extra["password"] = trueconf_password
+        trueconf_port = os.getenv("TRUECONF_PORT", "").strip()
+        if trueconf_port:
+            try:
+                config.platforms[Platform.TRUECONF].extra["port"] = int(trueconf_port)
+            except ValueError:
+                pass
+        trueconf_ssl = os.getenv("TRUECONF_USE_SSL", "").strip().lower()
+        if trueconf_ssl:
+            config.platforms[Platform.TRUECONF].extra["use_ssl"] = trueconf_ssl in ("true", "1", "yes")
+        trueconf_verify = os.getenv("TRUECONF_VERIFY_SSL", "").strip().lower()
+        if trueconf_verify:
+            config.platforms[Platform.TRUECONF].extra["verify_ssl"] = trueconf_verify in ("true", "1", "yes")
+
+3. В get_connected_platforms() добавить проверку для TrueConf:
+    if platform == Platform.TRUECONF:
+        if config.extra.get("server") and (
+            config.token or config.extra.get("token")
+            or (config.extra.get("username") and config.extra.get("password"))
+        ):
+            connected.append(platform)
+        continue
+
+4. В _create_adapter() (gateway/run.py) добавить:
+    elif platform == Platform.TRUECONF:
+        from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
+        if not check_trueconf_requirements():
+            logger.warning("TrueConf: python-trueconf-bot not installed. Run: pip install git+https://github.com/TrueConf/python-trueconf-bot")
+            return None
+        return TrueConfAdapter(config)
