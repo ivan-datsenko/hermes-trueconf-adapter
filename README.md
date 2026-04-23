@@ -1,6 +1,7 @@
-# TrueConf Adapter for Hermes Agent
 ![trueconf-adapter-logo](https://github.com/ivan-datsenko/hermes-trueconf-adapter/blob/main/trueconf-adapter.jpg)
 
+
+# TrueConf Adapter for Hermes-Agent
 [English](README_EN.md) | Русский
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
