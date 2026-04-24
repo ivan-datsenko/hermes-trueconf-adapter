@@ -55,15 +55,49 @@ fi
 echo -e "${GREEN}✅${NC} Hermes Agent найден"
 
 # Используем полные пути к venv — source activate ненадёжна в неинтерактивном bash
-PIP="$VENV_DIR/bin/pip"
 PYTHON="$VENV_DIR/bin/python"
+if [ ! -x "$PYTHON" ]; then
+    PYTHON="$VENV_DIR/bin/python3"
+fi
 
-if [ ! -x "$PIP" ]; then
-    echo -e "${RED}❌ pip не найден в venv: $PIP${NC}"
+if [ ! -x "$PYTHON" ]; then
+    echo -e "${RED}❌ Python не найден в venv: $VENV_DIR/bin/python[3]${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}✅${NC} Python venv: $PYTHON"
+# Ищем pip — может быть pip или pip3
+PIP=""
+if [ -x "$VENV_DIR/bin/pip" ]; then
+    PIP="$VENV_DIR/bin/pip"
+elif [ -x "$VENV_DIR/bin/pip3" ]; then
+    PIP="$VENV_DIR/bin/pip3"
+fi
+
+# Если pip нет — бутстрапим через python -m pip
+if [ -z "$PIP" ]; then
+    echo -e "${YELLOW}⏳ pip не найден в venv, устанавливаю...${NC}"
+    if "$PYTHON" -m ensurepip --upgrade 2>&1; then
+        echo -e "${GREEN}✅${NC} pip установлен через ensurepip"
+    elif "$PYTHON" -m ensurepip 2>&1; then
+        echo -e "${GREEN}✅${NC} pip установлен через ensurepip"
+    else
+        echo -e "${RED}❌ Не удалось установить pip в venv${NC}"
+        echo -e "${YELLOW}Попробуйте:${NC}"
+        echo "  $PYTHON -m ensurepip --upgrade"
+        exit 1
+    fi
+    # Перепроверяем
+    if [ -x "$VENV_DIR/bin/pip" ]; then
+        PIP="$VENV_DIR/bin/pip"
+    elif [ -x "$VENV_DIR/bin/pip3" ]; then
+        PIP="$VENV_DIR/bin/pip3"
+    else
+        PIP="$PYTHON -m pip"
+    fi
+fi
+
+echo -e "${GREEN}✅${NC} Python: $PYTHON"
+echo -e "${GREEN}✅${NC} Pip: $PIP"
 echo ""
 
 # ═══════════════════════════════════════════
@@ -71,9 +105,9 @@ echo ""
 # ═══════════════════════════════════════════
 echo -e "${YELLOW}⏳ Устанавливаю python-trueconf-bot...${NC}"
 INSTALL_OK=false
-if "$PIP" install --pre "python-trueconf-bot==1.2.0" 2>&1; then
+if "$PYTHON" -m pip install --pre "python-trueconf-bot==1.2.0" 2>&1; then
     INSTALL_OK=true
-elif "$PIP" install "python-trueconf-bot>=1.2.0" 2>&1; then
+elif "$PYTHON" -m pip install "python-trueconf-bot>=1.2.0" 2>&1; then
     INSTALL_OK=true
 fi
 
@@ -84,7 +118,7 @@ fi
 
 # Fix httpx dependency conflict (bot pulls httpx 1.0.dev3 which breaks AsyncClient)
 echo -e "${YELLOW}⏳ Фиксирую httpx...${NC}"
-"$PIP" install "httpx>=0.27,<0.29" 2>&1 || echo -e "${YELLOW}⚠ httpx fix не применён — возможны ошибки импорта${NC}"
+"$PYTHON" -m pip install "httpx>=0.27,<0.29" 2>&1 || echo -e "${YELLOW}⚠ httpx fix не применён — возможны ошибки импорта${NC}"
 
 # Verify import
 if "$PYTHON" -c "from trueconf import Bot; print('OK')" 2>&1; then
@@ -92,8 +126,8 @@ if "$PYTHON" -c "from trueconf import Bot; print('OK')" 2>&1; then
 else
     echo -e "${RED}❌${NC} Ошибка импорта trueconf.Bot"
     echo -e "${YELLOW}Попробуйте вручную:${NC}"
-    echo "  $PIP install --pre \"python-trueconf-bot==1.2.0\""
-    echo "  $PIP install \"httpx>=0.27,<0.29\""
+    echo "  $PYTHON -m pip install --pre \"python-trueconf-bot==1.2.0\""
+    echo "  $PYTHON -m pip install \"httpx>=0.27,<0.29\""
     exit 1
 fi
 echo ""
