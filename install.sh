@@ -61,14 +61,30 @@ echo ""
 # 2. Установка библиотеки
 # ═══════════════════════════════════════════
 echo -e "${YELLOW}⏳ Устанавливаю python-trueconf-bot...${NC}"
-pip install -q --pre "python-trueconf-bot==1.2.0" 2>/dev/null || pip install -q "python-trueconf-bot>=1.2.0" 2>/dev/null || true
+INSTALL_OK=false
+if pip install --pre "python-trueconf-bot==1.2.0" 2>&1; then
+    INSTALL_OK=true
+elif pip install "python-trueconf-bot>=1.2.0" 2>&1; then
+    INSTALL_OK=true
+fi
+
+if [ "$INSTALL_OK" = "false" ]; then
+    echo -e "${RED}❌ python-trueconf-bot не установился. Ошибки выше.${NC}"
+    exit 1
+fi
+
 # Fix httpx dependency conflict (bot pulls httpx 1.0.dev3 which breaks AsyncClient)
-pip install -q "httpx>=0.27,<0.29" 2>/dev/null || true
+echo -e "${YELLOW}⏳ Фиксирую httpx...${NC}"
+pip install "httpx>=0.27,<0.29" 2>&1 || echo -e "${YELLOW}⚠ httpx fix не применён — возможны ошибки импорта${NC}"
+
 # Verify import
-if python -c "from trueconf import Bot" 2>/dev/null; then
+if python -c "from trueconf import Bot; print('OK')" 2>&1; then
     echo -e "${GREEN}✅${NC} Библиотека установлена и проверена"
 else
-    echo -e "${RED}❌${NC} Ошибка импорта trueconf.Bot — проверьте логи выше"
+    echo -e "${RED}❌${NC} Ошибка импорта trueconf.Bot"
+    echo -e "${YELLOW}Попробуйте вручную:${NC}"
+    echo "  pip install --pre \"python-trueconf-bot==1.2.0\""
+    echo "  pip install \"httpx>=0.27,<0.29\""
     exit 1
 fi
 echo ""
