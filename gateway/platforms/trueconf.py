@@ -494,12 +494,20 @@ class TrueConfAdapter(BasePlatformAdapter):
     async def _ws_monitor(self) -> None:
         """Monitor WebSocket task and auto-reconnect on unexpected disconnect."""
         while not self._closing:
-            if self._ws_task is None:
+            if self._bot is None:
                 break
 
-            # Wait for the WS task to finish (disconnect or crash)
+            # Watch the library's internal _connect_task (the actual WS loop)
+            # NOT _ws_task which completes instantly after bot.start()
+            connect_task = getattr(self._bot, '_connect_task', None)
+            if connect_task is None:
+                # Bot not started yet, wait a bit
+                await asyncio.sleep(1)
+                continue
+
+            # Wait for the connect task to finish (disconnect or crash)
             try:
-                await asyncio.shield(self._ws_task)
+                await asyncio.shield(connect_task)
             except asyncio.CancelledError:
                 break
             except Exception as exc:
