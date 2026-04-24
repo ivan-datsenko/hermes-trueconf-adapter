@@ -66,11 +66,6 @@ The adapter automatically restores its patches after `hermes update`:
 bash ~/.hermes/plugins/trueconf-adapter/apply_patches.sh
 ```
 
-## Restart
-
-```bash
-hermes gateway stop && hermes gateway start
-```
 
 ## Verify
 
