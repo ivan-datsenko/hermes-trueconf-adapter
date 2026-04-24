@@ -53,8 +53,17 @@ if [ ! -d "$VENV_DIR" ]; then
 fi
 
 echo -e "${GREEN}✅${NC} Hermes Agent найден"
-source "$VENV_DIR/bin/activate"
-echo -e "${GREEN}✅${NC} Python venv активирован"
+
+# Используем полные пути к venv — source activate ненадёжна в неинтерактивном bash
+PIP="$VENV_DIR/bin/pip"
+PYTHON="$VENV_DIR/bin/python"
+
+if [ ! -x "$PIP" ]; then
+    echo -e "${RED}❌ pip не найден в venv: $PIP${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅${NC} Python venv: $PYTHON"
 echo ""
 
 # ═══════════════════════════════════════════
@@ -62,9 +71,9 @@ echo ""
 # ═══════════════════════════════════════════
 echo -e "${YELLOW}⏳ Устанавливаю python-trueconf-bot...${NC}"
 INSTALL_OK=false
-if pip install --pre "python-trueconf-bot==1.2.0" 2>&1; then
+if "$PIP" install --pre "python-trueconf-bot==1.2.0" 2>&1; then
     INSTALL_OK=true
-elif pip install "python-trueconf-bot>=1.2.0" 2>&1; then
+elif "$PIP" install "python-trueconf-bot>=1.2.0" 2>&1; then
     INSTALL_OK=true
 fi
 
@@ -75,16 +84,16 @@ fi
 
 # Fix httpx dependency conflict (bot pulls httpx 1.0.dev3 which breaks AsyncClient)
 echo -e "${YELLOW}⏳ Фиксирую httpx...${NC}"
-pip install "httpx>=0.27,<0.29" 2>&1 || echo -e "${YELLOW}⚠ httpx fix не применён — возможны ошибки импорта${NC}"
+"$PIP" install "httpx>=0.27,<0.29" 2>&1 || echo -e "${YELLOW}⚠ httpx fix не применён — возможны ошибки импорта${NC}"
 
 # Verify import
-if python -c "from trueconf import Bot; print('OK')" 2>&1; then
+if "$PYTHON" -c "from trueconf import Bot; print('OK')" 2>&1; then
     echo -e "${GREEN}✅${NC} Библиотека установлена и проверена"
 else
     echo -e "${RED}❌${NC} Ошибка импорта trueconf.Bot"
     echo -e "${YELLOW}Попробуйте вручную:${NC}"
-    echo "  pip install --pre \"python-trueconf-bot==1.2.0\""
-    echo "  pip install \"httpx>=0.27,<0.29\""
+    echo "  $PIP install --pre \"python-trueconf-bot==1.2.0\""
+    echo "  $PIP install \"httpx>=0.27,<0.29\""
     exit 1
 fi
 echo ""
