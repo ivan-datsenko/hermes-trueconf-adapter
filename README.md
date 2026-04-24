@@ -2,7 +2,7 @@
 
 
 
-# TrueConf Adapter🔌 for Hermes-Agent 🤖
+# TrueConf Adapter🔌 для Hermes-Agent 🤖
 
 [English](README_EN.md) | Русский
 
@@ -64,12 +64,6 @@ bash install.sh
 ```bash
 # Ручной запуск патчера (если нужно)
 bash ~/.hermes/plugins/trueconf-adapter/apply_patches.sh
-```
-
-## Перезапуск
-
-```bash
-hermes gateway stop && hermes gateway start
 ```
 
 ## Проверка
