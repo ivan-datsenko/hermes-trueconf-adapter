@@ -322,6 +322,7 @@ class TrueConfAdapter(BasePlatformAdapter):
         self._max_reconnects = 50
         self._reconnect_base_delay = 2.0
         self._reconnect_max_delay = 60.0
+        self._monitor_task: asyncio.Task | None = None
 
         # Sent message tracking for loop detection
         self._sent_message_ids: set = set()
@@ -438,6 +439,10 @@ class TrueConfAdapter(BasePlatformAdapter):
             logger.info(
                 "[TrueConf] Connected to %s as bot", self._server,
             )
+
+            # Start WebSocket monitor — detects disconnects and auto-reconnects
+            self._monitor_task = asyncio.create_task(self._ws_monitor())
+
             return True
 
         except Exception as exc:
@@ -456,6 +461,14 @@ class TrueConfAdapter(BasePlatformAdapter):
         """Disconnect from TrueConf Server."""
         self._closing = True
 
+        # Stop monitor task
+        if self._monitor_task and not self._monitor_task.done():
+            self._monitor_task.cancel()
+            try:
+                await self._monitor_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
         if self._ws_task and not self._ws_task.done():
             self._ws_task.cancel()
             try:
@@ -473,6 +486,75 @@ class TrueConfAdapter(BasePlatformAdapter):
         self._dispatcher = None
         self._mark_disconnected()
         logger.info("[TrueConf] Disconnected")
+
+    # ------------------------------------------------------------------
+    # WebSocket monitor — auto-reconnect on unexpected disconnect
+    # ------------------------------------------------------------------
+
+    async def _ws_monitor(self) -> None:
+        """Monitor WebSocket task and auto-reconnect on unexpected disconnect."""
+        while not self._closing:
+            if self._ws_task is None:
+                break
+
+            # Wait for the WS task to finish (disconnect or crash)
+            try:
+                await asyncio.shield(self._ws_task)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                logger.warning("[TrueConf] WebSocket task error: %s", exc)
+
+            # If we're shutting down, don't reconnect
+            if self._closing:
+                break
+
+            # Unexpected disconnect — attempt reconnect
+            self._reconnect_count += 1
+            if self._reconnect_count > self._max_reconnects:
+                logger.error(
+                    "[TrueConf] Max reconnects (%d) reached, giving up",
+                    self._max_reconnects,
+                )
+                self._set_fatal_error(
+                    "trueconf_max_reconnects",
+                    f"Failed to reconnect after {self._max_reconnects} attempts",
+                    retryable=False,
+                )
+                await self._notify_fatal_error()
+                break
+
+            delay = min(
+                self._reconnect_base_delay * (2 ** (self._reconnect_count - 1)),
+                self._reconnect_max_delay,
+            )
+            logger.info(
+                "[TrueConf] Connection lost, reconnecting in %.1fs (attempt %d/%d)...",
+                delay, self._reconnect_count, self._max_reconnects,
+            )
+            await asyncio.sleep(delay)
+
+            # Cleanup old bot before reconnect
+            if self._bot:
+                try:
+                    await self._bot.shutdown()
+                except Exception:
+                    pass
+                self._bot = None
+                self._dispatcher = None
+
+            # Reconnect
+            try:
+                success = await self.connect()
+                if success:
+                    logger.info("[TrueConf] Reconnected successfully")
+                    # connect() starts a new _ws_task and _monitor_task
+                    # This monitor can exit — the new one takes over
+                    break
+                else:
+                    logger.warning("[TrueConf] Reconnect attempt failed")
+            except Exception as exc:
+                logger.error("[TrueConf] Reconnect error: %s", exc)
 
     # ------------------------------------------------------------------
     # Event handler registration
