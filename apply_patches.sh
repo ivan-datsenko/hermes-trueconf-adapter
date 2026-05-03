@@ -210,7 +210,9 @@ if [ ! -f "$RUN_PY" ]; then
 fi
 
 # 3a. TrueConfAdapter creation block
-if grep -q 'Platform.TRUECONF' "$RUN_PY" 2>/dev/null; then
+# IMPORTANT: check for TrueConfAdapter specifically, NOT just Platform.TRUECONF
+# (auth maps in 3b also contain Platform.TRUECONF and would give false positive)
+if grep -q 'TrueConfAdapter' "$RUN_PY" 2>/dev/null; then
     log_skip "TrueConfAdapter in run.py"
 else
     log_patch "Adding TrueConfAdapter creation..."
@@ -220,7 +222,7 @@ path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-if 'Platform.TRUECONF' in content:
+if 'TrueConfAdapter' in content:
     sys.exit(0)
 
 # Insert after QQAdapter block
