@@ -283,17 +283,17 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         mv "${ENV_FILE}.tmp" "$ENV_FILE"
     fi
 
-    cat >> "$ENV_FILE" << EOF
-
-# TrueConf Adapter
-TRUECONF_SERVER=${TRUECONF_SERVER}
-TRUECONF_USERNAME=${TRUECONF_USERNAME}
-TRUECONF_PASSWORD=${TRUECONF_PASSWORD}
-TRUECONF_USE_SSL=$(echo "$USE_SSL" | tr '[:upper:]' '[:lower:]')
-TRUECONF_VERIFY_SSL=false
-TRUECONF_ALLOW_ALL_USERS=${ALLOW_ALL_USERS}
-TRUECONF_ALLOWED_USERS=${ALLOWED_USERS:-}
-EOF
+    {
+        echo ""
+        echo "# TrueConf Adapter"
+        echo "TRUECONF_SERVER=${TRUECONF_SERVER}"
+        echo "TRUECONF_USERNAME=${TRUECONF_USERNAME}"
+        echo "TRUECONF_PASSWORD=${TRUECONF_PASSWORD}"
+        echo "TRUECONF_USE_SSL=$(echo "$USE_SSL" | tr '[:upper:]' '[:lower:]')"
+        echo "TRUECONF_VERIFY_SSL=false"
+        echo "TRUECONF_ALLOW_ALL_USERS=${ALLOW_ALL_USERS}"
+        echo "TRUECONF_ALLOWED_USERS=${ALLOWED_USERS:-}"
+    } >> "$ENV_FILE"
 
     echo -e "${GREEN}✅${NC} Настройки сохранены в ~/.hermes/.env"
 fi
