@@ -2,82 +2,97 @@
 
 English | [Русский](README.md)
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![Status](https://img.shields.io/badge/status-production--ready-brightgreen)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
+![Status](https://img.shields.io/badge/status-beta-orange)
 
-A [TrueConf](https://trueconf.com/) adapter for [Hermes Agent](https://github.com/NousResearch/hermes-agent) — lets you talk to your AI agent via TrueConf.
+A [TrueConf](https://trueconf.com/) adapter for [Hermes Agent](https://github.com/NousResearch/hermes-agent) — communicate with your AI agent through TrueConf.
 
 ## Features
 
-| Feature | Status |
-|---------|--------|
-| Text messages | ✅ |
-| Slash commands (/help, /new, /reset) | ✅ |
-| Send images (URL + files) | ✅ |
-| Receive images (vision) | ✅ |
-| Send and receive files | ✅ |
-| Reply threading | ✅ |
-| Access control | ✅ |
-| Edit message | ✅ |
-| Outbound sending (`hermes send`) | ✅ |
-| Auto-repair after `hermes update` | ✅ |
+- ✅ Text messages
+- ✅ Slash commands (/help, /new, /reset)
+- ✅ Send and receive images
+- ✅ Send and receive files
+- ✅ Reply threading
+- ✅ Access control
+- ✅ Edit message
+- ✅ Outbound sending (`hermes send`)
+- ✅ Auto-reconnect on disconnect
+- ✅ Auto-repair after `hermes update`
 
-## Install in 1 minute
+## Requirements
+
+- **Hermes Agent** installed and configured (`hermes setup` completed)
+- **TrueConf Server** with a bot account created
+- **Python 3.10+**
+
+## Installation
 
 ```bash
+# 1. Clone the repository
 git clone https://github.com/ivan-datsenko/hermes-trueconf-adapter.git /tmp/trueconf-adapter
+
+# 2. Enter the directory
 cd /tmp/trueconf-adapter
+
+# 3. Run the installer
 bash install.sh
 ```
 
-**The script will ask you for:**
+The installer will ask you for:
 - TrueConf server address
-- Bot login and password
-- Who can access the bot
+- Bot username and password
+- Access control settings
 
-It will install, configure and save everything automatically.
+It will automatically install dependencies, apply patches, and save your settings.
 
-## Settings (in ~/.hermes/.env)
+### Non-standard Hermes installation path
+
+```bash
+HERMES_DIR=/home/user/.hermes/hermes-agent bash install.sh
+```
+
+## Configuration (in ~/.hermes/.env)
 
 | Variable | Description |
 |----------|-------------|
-| `TRUECONF_SERVER` | TrueConf server address |
-| `TRUECONF_USERNAME` | Bot login |
+| `TRUECONF_SERVER` | TrueConf server address (e.g. video.company.com) |
+| `TRUECONF_USERNAME` | Bot username |
 | `TRUECONF_PASSWORD` | Bot password |
 | `TRUECONF_USE_SSL` | `true` for HTTPS (default) |
 | `TRUECONF_VERIFY_SSL` | `false` for self-signed certificates |
-| `TRUECONF_ALLOW_ALL_USERS` | `true` — everyone, `false` — whitelist only |
-| `TRUECONF_ALLOWED_USERS` | Comma-separated list of allowed emails |
+| `TRUECONF_ALLOW_ALL_USERS` | `true` — allow all, `false` — allowlisted only |
+| `TRUECONF_ALLOWED_USERS` | Comma-separated TrueConf IDs |
+
+## After installation
+
+```bash
+# Restart the gateway (do NOT use 'restart' — it may hang)
+hermes gateway stop && hermes gateway start
+
+# Check connection
+grep -i trueconf ~/.hermes/logs/agent.log | tail -10
+
+# Verify the bot is online in TrueConf client
+```
 
 ## Update protection
 
 The adapter automatically restores its patches after `hermes update`:
 
-1. **apply_patches.sh** — idempotent patcher (18 checks)
+1. **apply_patches.sh** — idempotent patcher (17 checks)
 2. **Git hooks** — post-merge + post-checkout run the patcher automatically
 3. **Systemd drop-in** — ExecStartPre runs the patcher on gateway start
 
 ```bash
-# Manual patcher run (if needed)
+# Manual patch run (if needed)
 bash ~/.hermes/plugins/trueconf-adapter/apply_patches.sh
 ```
 
-## Restart
+## Debugging
 
 ```bash
-hermes gateway stop && hermes gateway start
-```
-
-## Verify
-
-```bash
-grep trueconf ~/.hermes/logs/agent.log | tail -20
-```
-
-## Debug
-
-```bash
-# Check settings
+# Check configuration
 cat ~/.hermes/.env | grep TRUECONF
 
 # Gateway status
@@ -87,25 +102,15 @@ ps aux | grep "hermes.*gateway" | grep -v grep
 tail -f ~/.hermes/logs/agent.log | grep -i trueconf
 ```
 
-## Plugin structure
+## Troubleshooting
 
-```
-hermes-trueconf-adapter/
-├── apply_patches.sh          # Idempotent patcher (18 checks)
-├── install.sh                # Interactive installer
-├── README.md                 # Documentation (Russian)
-├── README_EN.md              # Documentation (English)
-├── dotenv.template           # .env template
-├── gateway/platforms/
-│   └── trueconf.py           # Main adapter (1270+ lines)
-├── lib_patches/
-│   ├── bot.py                # Library patch (download_file_by_id)
-│   └── parser.py             # Parser patch
-└── patches/
-    ├── config.py.patch
-    ├── platforms.py.patch
-    └── send_message_tool.py.patch
-```
+| Problem | Solution |
+|---------|----------|
+| Bot flickers/goes offline | Fixed in v2.0.0 — WebSocket monitoring corrected |
+| `ImportError: cannot import name 'AsyncClient'` | `pip install httpx==0.28.1` — httpx version conflict |
+| `KeyError: 'trueconf'` | Re-run `bash ~/.hermes/plugins/trueconf-adapter/apply_patches.sh` |
+| Bot doesn't respond to messages | Check `TRUECONF_ALLOW_ALL_USERS` or add your ID to `TRUECONF_ALLOWED_USERS` |
+| `hermes gateway restart` hangs | Use `hermes gateway stop && hermes gateway start` instead |
 
 ## License
 

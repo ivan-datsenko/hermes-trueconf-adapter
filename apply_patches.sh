@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================
-# TrueConf Adapter — Auto-Patch Script
+# TrueConf Adapter — Auto-Patch Script v2.0
 # ============================================
 # Applies all necessary patches to hermes-agent core files.
 # Safe to run multiple times (idempotent).
@@ -10,17 +10,33 @@
 
 set -e
 
-HERMES_DIR="${1:-${HERMES_DIR:-/root/.hermes/hermes-agent}}"
+HERMES_DIR="${1:-${HERMES_DIR:-$HOME/.hermes/hermes-agent}}"
 PATCHED=0
-SKIPPED=0
 
 log_ok()   { echo "  ✓ $1"; }
 log_skip() { echo "  · $1 (already patched)"; }
 log_patch(){ echo "  → $1"; }
 
+# Determine where this script lives (could be in repo or in plugins dir)
+ADAPTER_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Determine Python version in venv
+VENV_DIR="${HERMES_DIR}/venv"
+if [ -d "${VENV_DIR}/lib" ]; then
+    PYTHON_VER=$(ls "${VENV_DIR}/lib/" | grep -oP 'python3\.\d+' | head -1)
+    if [ -z "$PYTHON_VER" ]; then
+        PYTHON_VER="python3.12"  # fallback
+    fi
+else
+    PYTHON_VER="python3.12"  # fallback
+fi
+SITE_PACKAGES="${VENV_DIR}/lib/${PYTHON_VER}/site-packages"
+
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  TrueConf Adapter — Apply Patches"
+echo "  TrueConf Adapter — Apply Patches v2.0"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Hermes: $HERMES_DIR"
+echo "  Python: $PYTHON_VER"
 echo ""
 
 # ───────────────────────────────────────────
@@ -38,7 +54,6 @@ if grep -q 'TRUECONF = "trueconf"' "$CONFIG_PY" 2>/dev/null; then
     log_skip "Platform.TRUECONF enum"
 else
     log_patch "Adding Platform.TRUECONF to enum..."
-    # Find the last platform in the enum (before the empty line after QQBOT)
     sed -i '/QQBOT = "qqbot"/a\    TRUECONF = "trueconf"' "$CONFIG_PY"
     log_ok "Platform.TRUECONF enum added"
     PATCHED=$((PATCHED + 1))
@@ -49,7 +64,6 @@ if grep -q 'trueconf_server = os.getenv' "$CONFIG_PY" 2>/dev/null; then
     log_skip "auto-detect block in config.py"
 else
     log_patch "Adding auto-detect block..."
-    # Find the DingTalk home_channel block end and insert after it
     python3 - "$CONFIG_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
@@ -60,10 +74,9 @@ marker = 'trueconf_server = os.getenv("TRUECONF_SERVER"'
 if marker in content:
     sys.exit(0)
 
-# Find insertion point: after DingTalk block (last block before Feishu)
+# Find insertion point: after DingTalk home_channel block or before Feishu
 insert_after = '    # Feishu / Lark'
 if insert_after not in content:
-    # Fallback: find after the last HomeChannel block
     insert_after = '    feishu_app_id = os.getenv("FEISHU_APP_ID")'
 
 patch = '''
@@ -129,7 +142,6 @@ with open(path, 'r') as f:
 if 'Platform.TRUECONF and config.extra' in content:
     sys.exit(0)
 
-# Insert after QQBOT check in get_connected_platforms
 marker = '            elif platform == Platform.QQBOT and config.extra.get("app_id") and config.extra.get("client_secret"):\n                connected.append(platform)'
 replacement = marker + '''
             # TrueConf uses extra dict for server + credentials
@@ -188,7 +200,7 @@ PYEOF
 fi
 
 # ───────────────────────────────────────────
-# 3. gateway/run.py — TrueConfAdapter creation
+# 3. gateway/run.py — TrueConfAdapter creation + auth maps
 # ───────────────────────────────────────────
 RUN_PY="${HERMES_DIR}/gateway/run.py"
 
@@ -197,6 +209,7 @@ if [ ! -f "$RUN_PY" ]; then
     exit 1
 fi
 
+# 3a. TrueConfAdapter creation block
 if grep -q 'Platform.TRUECONF' "$RUN_PY" 2>/dev/null; then
     log_skip "TrueConfAdapter in run.py"
 else
@@ -210,14 +223,14 @@ with open(path, 'r') as f:
 if 'Platform.TRUECONF' in content:
     sys.exit(0)
 
-# Insert after QQAdapter block (the last adapter before return None)
+# Insert after QQAdapter block
 marker = '            return QQAdapter(config)\n\n        return None'
 replacement = '''            return QQAdapter(config)
 
         elif platform == Platform.TRUECONF:
             from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
             if not check_trueconf_requirements():
-                logger.warning("TrueConf: python-trueconf-bot not installed. Run: pip install git+https://github.com/TrueConf/python-trueconf-bot")
+                logger.warning("TrueConf: python-trueconf-bot not installed. Run: pip install python-trueconf-bot")
                 return None
             return TrueConfAdapter(config)
 
@@ -232,8 +245,7 @@ PYEOF
     PATCHED=$((PATCHED + 1))
 fi
 
-# 3b. run.py — Authorization maps (platform_allow_all_map, platform_env_map, _allow_all)
-# These get wiped by upstream updates even when Platform.TRUECONF exists elsewhere
+# 3b. run.py — Authorization maps
 AUTH_PATCHED=0
 
 # Check _allow_all list
@@ -241,8 +253,7 @@ if grep -q '"TRUECONF_ALLOW_ALL_USERS"' "$RUN_PY" 2>/dev/null; then
     log_skip "TRUECONF_ALLOW_ALL_USERS in _allow_all list"
 else
     log_patch "Adding TRUECONF_ALLOW_ALL_USERS to _allow_all list..."
-    sed -i '/"QQ_ALLOW_ALL_USERS")/{s/)$//; a\                       "TRUECONF_ALLOW_ALL_USERS")
-}' "$RUN_PY"
+    sed -i '/"QQ_ALLOW_ALL_USERS")/{s/)$/                       "TRUECONF_ALLOW_ALL_USERS")/}' "$RUN_PY"
     log_ok "TRUECONF_ALLOW_ALL_USERS added to _allow_all"
     AUTH_PATCHED=$((AUTH_PATCHED + 1))
 fi
@@ -257,7 +268,7 @@ else
     AUTH_PATCHED=$((AUTH_PATCHED + 1))
 fi
 
-# Check platform_allow_all_map (first occurrence in _is_user_authorized)
+# Check platform_allow_all_map (first occurrence)
 if grep -q 'Platform.TRUECONF.*TRUECONF_ALLOW_ALL_USERS' "$RUN_PY" 2>/dev/null; then
     log_skip "TrueConf in platform_allow_all_map"
 else
@@ -268,7 +279,6 @@ path = sys.argv[1]
 with open(path, 'r') as f:
     lines = f.readlines()
 
-# Find the FIRST platform_allow_all_map block and add TRUECONF after QQBOT
 in_allow_all_map = False
 allow_all_count = 0
 inserted = False
@@ -278,7 +288,6 @@ for i, line in enumerate(lines):
         if allow_all_count == 1:
             in_allow_all_map = True
     if in_allow_all_map and 'QQ_ALLOW_ALL_USERS' in line and not inserted:
-        # Add TRUECONF after QQBOT line
         indent = line[:len(line) - len(line.lstrip())]
         lines.insert(i + 1, indent + 'Platform.TRUECONF: "TRUECONF_ALLOW_ALL_USERS",\n')
         inserted = True
@@ -297,7 +306,7 @@ PYEOF
     AUTH_PATCHED=$((AUTH_PATCHED + 1))
 fi
 
-# Check platform_env_map (first occurrence in _is_user_authorized)
+# Check platform_env_map (first occurrence)
 if grep -q 'Platform.TRUECONF.*TRUECONF_ALLOWED_USERS' "$RUN_PY" 2>/dev/null; then
     log_skip "TrueConf in platform_env_map"
 else
@@ -308,7 +317,6 @@ path = sys.argv[1]
 with open(path, 'r') as f:
     lines = f.readlines()
 
-# Find the FIRST platform_env_map block and add TRUECONF after QQBOT
 in_env_map = False
 env_map_count = 0
 inserted = False
@@ -339,34 +347,6 @@ fi
 # Check second platform_env_map (in _handle_unauthorized)
 SECOND_ENV=$(grep -c 'platform_env_map' "$RUN_PY")
 if [ "$SECOND_ENV" -ge 2 ]; then
-    # Check if TRUECONF is in the second occurrence too
-    python3 - "$RUN_PY" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    lines = f.readlines()
-
-env_map_count = 0
-in_second = False
-for i, line in enumerate(lines):
-    if 'platform_env_map' in line and 'group' not in line:
-        env_map_count += 1
-        if env_map_count == 2:
-            in_second = True
-    if in_second and 'QQ_ALLOWED_USERS' in line:
-        # Check if TRUECONF already present in this block
-        block_end = i + 5
-        block = ''.join(lines[i:min(block_end, len(lines))])
-        if 'TRUECONF' not in block:
-            indent = line[:len(line) - len(line.lstrip())]
-            lines.insert(i + 1, indent + 'Platform.TRUECONF:  "TRUECONF_ALLOWED_USERS",\n')
-            with open(path, 'w') as f:
-                f.writelines(lines)
-            print("PATCHED")
-        else:
-            print("OK")
-        break
-PYEOF
     RESULT=$(python3 - "$RUN_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
@@ -424,14 +404,14 @@ fi
 PATCHED=$((PATCHED + AUTH_PATCHED))
 
 # ───────────────────────────────────────────
-# 3c. tools/send_message_tool.py — TrueConf sending support
+# 3c. tools/send_message_tool.py — TrueConf sending
 # ───────────────────────────────────────────
 SEND_PY="${HERMES_DIR}/tools/send_message_tool.py"
 
 if [ -f "$SEND_PY" ]; then
     SEND_PATCHED=0
 
-    # Check platform_map has trueconf
+    # platform_map
     if grep -q '"trueconf"' "$SEND_PY" 2>/dev/null; then
         log_skip "TrueConf in send_message platform_map"
     else
@@ -441,7 +421,7 @@ if [ -f "$SEND_PY" ]; then
         SEND_PATCHED=$((SEND_PATCHED + 1))
     fi
 
-    # Check _send_trueconf function exists
+    # _send_trueconf function
     if grep -q '_send_trueconf' "$SEND_PY" 2>/dev/null; then
         log_skip "_send_trueconf function"
     else
@@ -455,7 +435,6 @@ with open(path, 'r') as f:
 if '_send_trueconf' in content:
     sys.exit(0)
 
-# Insert before "# --- Registry ---"
 marker = '# --- Registry ---'
 func = '''
 
@@ -516,7 +495,7 @@ PYEOF
         SEND_PATCHED=$((SEND_PATCHED + 1))
     fi
 
-    # Check TrueConf in non-media loop
+    # TrueConf in non-media routing
     if grep -q 'Platform.TRUECONF' "$SEND_PY" 2>/dev/null; then
         log_skip "TrueConf in send_message routing"
     else
@@ -526,7 +505,7 @@ PYEOF
         SEND_PATCHED=$((SEND_PATCHED + 1))
     fi
 
-    # Check TrueConf media block before Non-media platforms
+    # TrueConf media handling block
     if grep -q 'TrueConf.*special handling.*media' "$SEND_PY" 2>/dev/null; then
         log_skip "TrueConf media handling block"
     else
@@ -574,7 +553,6 @@ fi
 # ───────────────────────────────────────────
 # 4. Copy adapter to gateway/platforms/
 # ───────────────────────────────────────────
-ADAPTER_DIR="$(cd "$(dirname "$0")" && pwd)"
 ADAPTER_SRC="${ADAPTER_DIR}/gateway/platforms/trueconf.py"
 ADAPTER_DST="${HERMES_DIR}/gateway/platforms/trueconf.py"
 
@@ -592,9 +570,8 @@ fi
 # ───────────────────────────────────────────
 # 5. Patch python-trueconf-bot library
 # ───────────────────────────────────────────
-VENV_DIR="${HERMES_DIR}/venv"
-BOT_PY="${VENV_DIR}/lib/python3.11/site-packages/trueconf/client/bot.py"
-PARSER_PY="${VENV_DIR}/lib/python3.11/site-packages/trueconf/types/parser.py"
+BOT_PY="${SITE_PACKAGES}/trueconf/client/bot.py"
+PARSER_PY="${SITE_PACKAGES}/trueconf/types/parser.py"
 
 if [ -f "$BOT_PY" ] && [ -f "${ADAPTER_DIR}/lib_patches/bot.py" ]; then
     if grep -q "download_file_by_id" "$BOT_PY" 2>/dev/null; then
@@ -616,6 +593,103 @@ if [ -f "$PARSER_PY" ] && [ -f "${ADAPTER_DIR}/lib_patches/parser.py" ]; then
         log_ok "parser.py patched"
         PATCHED=$((PATCHED + 1))
     fi
+fi
+
+# ───────────────────────────────────────────
+# 6. config.yaml — platform_toolsets for TrueConf
+# ───────────────────────────────────────────
+CONFIG_YAML="${HOME}/.hermes/config.yaml"
+
+if [ -f "$CONFIG_YAML" ]; then
+    if grep -q '^  trueconf:' "$CONFIG_YAML" 2>/dev/null; then
+        log_skip "platform_toolsets for TrueConf in config.yaml"
+    else
+        log_patch "Adding TrueConf toolsets to config.yaml..."
+        # Insert trueconf section after qqbot in platform_toolsets
+        python3 - "$CONFIG_YAML" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if '\n  trueconf:' in content or content.endswith('trueconf:'):
+    sys.exit(0)
+
+# Find qqbot section and insert after it
+marker = '  qqbot:\n  - hermes-qqbot'
+if marker not in content:
+    # Try finding the signal section instead
+    marker = '  signal:\n  - hermes-signal'
+
+if marker in content:
+    trueconf_section = '''  qqbot:
+  - hermes-qqbot
+  trueconf:
+  - browser
+  - clarify
+  - code_execution
+  - cronjob
+  - delegation
+  - file
+  - image_gen
+  - memory
+  - messaging
+  - session_search
+  - skills
+  - terminal
+  - todo
+  - tts
+  - vision
+  - web'''
+    content = content.replace(marker, trueconf_section)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    # Fallback: append at end of platform_toolsets section
+    # Find the end of platform_toolsets by looking for the next top-level key
+    lines = content.split('\n')
+    in_toolsets = False
+    insert_idx = None
+    for i, line in enumerate(lines):
+        if line.startswith('platform_toolsets:'):
+            in_toolsets = True
+        elif in_toolsets and line and not line.startswith(' ') and not line.startswith('#'):
+            insert_idx = i
+            break
+    
+    if insert_idx:
+        trueconf_section = '''  trueconf:
+  - browser
+  - clarify
+  - code_execution
+  - cronjob
+  - delegation
+  - file
+  - image_gen
+  - memory
+  - messaging
+  - session_search
+  - skills
+  - terminal
+  - todo
+  - tts
+  - vision
+  - web
+'''
+        lines.insert(insert_idx, trueconf_section.rstrip())
+        with open(path, 'w') as f:
+            f.write('\n'.join(lines))
+        print("OK")
+    else:
+        print("SKIP")
+PYEOF
+        log_ok "TrueConf toolsets added to config.yaml"
+        PATCHED=$((PATCHED + 1))
+    fi
+else
+    echo "  ⚠ config.yaml not found — skipping toolsets config"
+    echo "    After hermes setup, run: bash ${ADAPTER_DIR}/apply_patches.sh"
 fi
 
 # ───────────────────────────────────────────
