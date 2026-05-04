@@ -581,12 +581,42 @@ BOT_PY="${SITE_PACKAGES}/trueconf/client/bot.py"
 PARSER_PY="${SITE_PACKAGES}/trueconf/types/parser.py"
 
 if [ -f "$BOT_PY" ] && [ -f "${ADAPTER_DIR}/lib_patches/bot.py" ]; then
+    # Check if bot.py needs full replacement (missing download_file_by_id)
     if grep -q "download_file_by_id" "$BOT_PY" 2>/dev/null; then
-        log_skip "bot.py lib patch"
+        log_skip "bot.py lib patch (download_file_by_id)"
     else
         log_patch "Patching bot.py (adding download_file_by_id)..."
         cp "${ADAPTER_DIR}/lib_patches/bot.py" "$BOT_PY"
         log_ok "bot.py patched"
+        PATCHED=$((PATCHED + 1))
+    fi
+
+    # Check if check_version has None-guard (prevents crash when server version is unknown)
+    if grep -q "current_version is None" "$BOT_PY" 2>/dev/null; then
+        log_skip "bot.py check_version None-guard"
+    else
+        log_patch "Patching bot.py check_version (None-guard)..."
+        python3 - "$BOT_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if 'current_version is None' in content:
+    sys.exit(0)
+
+old = '        _VersionChecker.check(current_version)'
+new = '''        if current_version is None:
+            loggers.chatbot.warning("⚠️ Could not determine server version, skipping version check")
+            return
+        _VersionChecker.check(current_version)'''
+
+content = content.replace(old, new, 1)
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
+PYEOF
+        log_ok "bot.py check_version None-guard added"
         PATCHED=$((PATCHED + 1))
     fi
 fi
