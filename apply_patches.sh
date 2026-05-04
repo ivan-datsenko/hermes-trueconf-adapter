@@ -217,7 +217,7 @@ if grep -q 'TrueConfAdapter' "$RUN_PY" 2>/dev/null; then
 else
     log_patch "Adding TrueConfAdapter creation..."
     python3 - "$RUN_PY" << 'PYEOF'
-import sys
+import sys, re
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
@@ -225,9 +225,15 @@ with open(path, 'r') as f:
 if 'TrueConfAdapter' in content:
     sys.exit(0)
 
-# Insert after QQAdapter block
-marker = '            return QQAdapter(config)\n\n        return None'
-replacement = '''            return QQAdapter(config)
+# Stable insertion: find "return None" right before "def _is_user_authorized"
+# This works regardless of which platforms exist above (QQ, Yuanbao, etc.)
+pattern = r'(\n        return None\n    def _is_user_authorized)'
+match = re.search(pattern, content)
+if not match:
+    print("WARN: could not find insertion point in run.py")
+    sys.exit(1)
+
+tc_block = '''
 
         elif platform == Platform.TRUECONF:
             from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
@@ -235,10 +241,9 @@ replacement = '''            return QQAdapter(config)
                 logger.warning("TrueConf: python-trueconf-bot not installed. Run: pip install python-trueconf-bot")
                 return None
             return TrueConfAdapter(config)
+'''
 
-        return None'''
-
-content = content.replace(marker, replacement, 1)
+content = content[:match.start()] + tc_block + match.group(0) + content[match.end():]
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
