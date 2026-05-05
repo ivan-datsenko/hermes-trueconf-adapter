@@ -612,12 +612,8 @@ if 'current_version is None' in content:
 
 # Find the line "current_version = await self.server_version"
 # and add None-guard after it
-old = 'current_version = await self.server_version\n'
-guard = '''current_version = await self.server_version
-        if current_version is None:
-            loggers.chatbot.warning("⚠️ Could not determine server version, skipping version check")
-            return
-        '''
+old = '    current_version = await self.server_version\n'
+guard = '    current_version = await self.server_version\n    if current_version is None:\n        loggers.chatbot.warning("⚠️ Could not determine server version, skipping version check")\n        return\n    '
 if old not in content:
     print("FAIL: Could not find 'current_version = await self.server_version'")
     sys.exit(1)
