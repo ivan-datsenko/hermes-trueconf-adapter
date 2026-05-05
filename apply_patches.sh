@@ -162,20 +162,24 @@ if grep -q '"trueconf"' "$PLATFORMS_PY" 2>/dev/null; then
     log_skip "TrueConf in PLATFORMS dict"
 else
     log_patch "Adding TrueConf to PLATFORMS dict..."
-    python3 - "$PLATFORMS_PY" << 'PYEOF'
+    python3 - "$PLATFORMS_PY" << 'PYEOF2'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-marker = '    ("api_server",     PlatformInfo(label="🌐 API Server",      default_toolset="hermes-api-server")),'
-replacement = marker + '''
-    ("trueconf",       PlatformInfo(label="📹 TrueConf",        default_toolset="hermes-trueconf")),'''
-content = content.replace(marker, replacement, 1)
+import re
+# Find the closing ]) of the PLATFORMS OrderedDict and insert before it
+pattern = r'(\]\))'
+matches = list(re.finditer(pattern, content))
+if matches:
+    insert_pos = matches[0].start()
+    trueconf_line = '    ("trueconf",       PlatformInfo(label="📹 TrueConf",        default_toolset="hermes-trueconf")),'
+    content = content[:insert_pos] + trueconf_line + "\n" + content[insert_pos:]
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
-PYEOF
+PYEOF2
     log_ok "TrueConf in PLATFORMS dict added"
     PATCHED=$((PATCHED + 1))
 fi
@@ -479,26 +483,32 @@ fi
 # ───────────────────────────────────────────
 # 4e. SEND_MESSAGE_SCHEMA — add trueconf to target description
 # ───────────────────────────────────────────
-if grep -q "trueconf" "$SEND_PY" 2>/dev/null && grep -q "SEND_MESSAGE_SCHEMA" "$SEND_PY" 2>/dev/null && grep -A20 "SEND_MESSAGE_SCHEMA" "$SEND_PY" | grep -q "trueconf.*chat_id\|trueconf:.*<"; then
+if grep -q "trueconf" "$SEND_PY" 2>/dev/null && grep -q "SEND_MESSAGE_SCHEMA" "$SEND_PY" 2>/dev/null && grep -A30 "SEND_MESSAGE_SCHEMA" "$SEND_PY" | grep -q "trueconf.*chat_id\|trueconf:.*<"; then
     log_skip "TrueConf in SEND_MESSAGE_SCHEMA target description"
 else
     log_patch "Adding TrueConf to SEND_MESSAGE_SCHEMA target description..."
     python3 - "$SEND_PY" << 'PYEOF'
-import sys
+import sys, re
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-# Add trueconf examples to the target description
-old = "'yuanbao:direct:<account_id>' (DM), 'yuanbao:group:<group_code>' (group chat)\""
-new = "'yuanbao:direct:<account_id>' (DM), 'yuanbao:group:<group_code>' (group chat), 'trueconf:<chat_id>'\""
-if old in content and "trueconf:<chat_id>" not in content:
-    content = content.replace(old, new, 1)
+if "trueconf:<chat_id>" in content:
+    print("SKIP")
+    sys.exit(0)
+
+# Find the target description string in SEND_MESSAGE_SCHEMA and add trueconf
+# Look for the description ending with a platform example like 'yuanbao:...' and add trueconf before the closing quote
+pattern = r"((?:yuanbao|matrix|signal|slack|discord|telegram)[^\"']*(?:group|chat|DM|channel)[^\"']*)[\"']"
+m = re.search(pattern, content)
+if m:
+    insert_pos = m.end(1)
+    content = content[:insert_pos] + ", 'trueconf:<chat_id>'" + content[insert_pos:]
     with open(path, 'w') as f:
         f.write(content)
     print("OK")
 else:
-    print("SKIP")
+    print("SKIP: could not find target description anchor")
 PYEOF
     if [ $? -eq 0 ]; then
         log_ok "TrueConf added to SEND_MESSAGE_SCHEMA"
@@ -507,14 +517,41 @@ PYEOF
 fi
 
 # 4f. Non-media error message — include trueconf
-if grep -q "yuanbao, feishu and trueconf" "$SEND_PY" 2>/dev/null; then
+if grep -q "yuanbao, feishu and trueconf" "$SEND_PY" 2>/dev/null || grep -q "yuanbao, feishu, trueconf" "$SEND_PY" 2>/dev/null; then
     log_skip "Non-media error messages include trueconf"
 else
     log_patch "Updating error/warning messages to include trueconf..."
-    sed -i 's/yuanbao, feishu;"/yuanbao, feishu, trueconf;"/g' "$SEND_PY" 2>/dev/null
-    sed -i 's/yuanbao and feishu"/yuanbao, feishu and trueconf"/g' "$SEND_PY" 2>/dev/null
-    log_ok "Error messages updated"
-    PATCHED=$((PATCHED + 1))
+    python3 - "$SEND_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+# Add trueconf to any "supported for X, Y and Z" or "X, Y; " patterns in error messages
+import re
+# Pattern: "... yuanbao, feishu ..." or "... yuanbao and feishu ..."
+added = False
+for pat, repl in [
+    ('"native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu"',
+     '"native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf"'),
+    ('"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu; "',
+     '"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf; "'),
+    ('"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal and yuanbao; "',
+     '"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and trueconf; "'),
+]:
+    if pat in content:
+        content = content.replace(pat, repl)
+        added = True
+if added:
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP")
+PYEOF
+    if [ $? -eq 0 ]; then
+        log_ok "Error messages updated"
+        PATCHED=$((PATCHED + 1))
+    fi
 fi
 
 # ───────────────────────────────────────────
