@@ -579,55 +579,18 @@ fi
 # ───────────────────────────────────────────
 BOT_PY="${SITE_PACKAGES}/trueconf/client/bot.py"
 PARSER_PY="${SITE_PACKAGES}/trueconf/types/parser.py"
-
 if [ -f "$BOT_PY" ]; then
-    # Check if bot.py needs full replacement (missing download_file_by_id)
-    if grep -q "download_file_by_id" "$BOT_PY" 2>/dev/null; then
-        log_skip "bot.py lib patch (download_file_by_id)"
-    elif [ -f "${ADAPTER_DIR}/lib_patches/bot.py" ]; then
-        log_patch "Patching bot.py (adding download_file_by_id)..."
-        cp "${ADAPTER_DIR}/lib_patches/bot.py" "$BOT_PY"
-        log_ok "bot.py patched (full replacement from lib_patches)"
-        PATCHED=$((PATCHED + 1))
+    # Use lib_patches/bot.py as the source of truth
+    if grep -q "current_version is None" "$BOT_PY" 2>/dev/null && grep -q "download_file_by_id" "$BOT_PY" 2>/dev/null; then
+        log_skip "bot.py lib patch (already has download_file_by_id and None-guard)"
     else
-        log_patch "Adding download_file_by_id via in-place patch..."
-        # Here we would add an in-place patch if we had one, but for now we just warn
-        echo "  ⚠️ Warning: download_file_by_id missing and no lib_patches/bot.py found to replace."
-    fi
-
-    # Check if check_version has None-guard (prevents crash when server version is None)
-    if grep -q "current_version is None" "$BOT_PY" 2>/dev/null; then
-        log_skip "bot.py check_version None-guard"
-    else
-        log_patch "Patching bot.py check_version (None-guard)..."
-        # Simple and reliable: insert None-guard after 'current_version = await self.server_version'
-        python3 - "$BOT_PY" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
-
-if 'current_version is None' in content:
-    sys.exit(0)
-
-# Find the line "current_version = await self.server_version"
-# and add None-guard after it
-old = '    current_version = await self.server_version\n'
-guard = '    current_version = await self.server_version\n    if current_version is None:\n        loggers.chatbot.warning("⚠️ Could not determine server version, skipping version check")\n        return\n    '
-if old not in content:
-    print("FAIL: Could not find 'current_version = await self.server_version'")
-    sys.exit(1)
-
-content = content.replace(old, guard, 1)
-with open(path, 'w') as f:
-    f.write(content)
-print("OK")
-PYEOF
-        if [ $? -eq 0 ]; then
-            log_ok "bot.py check_version None-guard added"
+        if [ -f "${ADAPTER_DIR}/lib_patches/bot.py" ]; then
+            log_patch "Replacing bot.py with patched version from lib_patches..."
+            cp "${ADAPTER_DIR}/lib_patches/bot.py" "$BOT_PY"
+            log_ok "bot.py replaced with lib_patches version"
             PATCHED=$((PATCHED + 1))
         else
-            echo "  ✗ Failed to patch check_version"
+            echo "  ⚠️ Warning: lib_patches/bot.py not found, cannot patch bot.py"
         fi
     fi
 else

@@ -118,27 +118,6 @@ $PYTHON -m pip install --pre "python-trueconf-bot==1.2.0" 2>&1 || {
 echo "  Фикс httpx (бот тянет несовместимую версию)..."
 $PYTHON -m pip install "httpx==0.28.1" 2>&1 || die "Не удалось установить httpx==0.28.1"
 
-# IMMEDIATE FIX: Replace bot.py with patched version BEFORE import check
-echo -e "${YELLOW}⏳ Applying immediate bot.py fix...${NC}"
-# Determine Python version in venv (same logic as apply_patches.sh)
-VENV_DIR="${HERMES_DIR}/venv"
-if [ -d "${VENV_DIR}/lib" ]; then
-    PYTHON_VER=$(ls "${VENV_DIR}/lib/" | grep -oP 'python3\.\d+' | head -1)
-    if [ -z "$PYTHON_VER" ]; then
-        PYTHON_VER="python3.11"  # fallback
-    fi
-else
-    PYTHON_VER="python3.11"  # fallback
-fi
-SITE_PACKAGES="${VENV_DIR}/lib/${PYTHON_VER}/site-packages"
-
-if [ -f "${ADAPTER_DIR}/lib_patches/bot.py" ] && [ -d "${SITE_PACKAGES}/trueconf/client" ]; then
-    cp "${ADAPTER_DIR}/lib_patches/bot.py" "${SITE_PACKAGES}/trueconf/client/bot.py"
-    echo "  ✓ bot.py replaced immediately"
-else
-    echo "  ⚠️ Warning: Could not apply immediate fix (missing files or dirs)"
-fi
-
 if $PYTHON -c "from trueconf import Bot" 2>&1; then
     echo -e "${GREEN}✅${NC} python-trueconf-bot установлен"
 else
