@@ -556,32 +556,28 @@ fi
 # ───────────────────────────────────────────
 # 4e. SEND_MESSAGE_SCHEMA — add trueconf to target description
 # ───────────────────────────────────────────
-if grep -q "trueconf" "$SEND_PY" 2>/dev/null && grep -q "SEND_MESSAGE_SCHEMA" "$SEND_PY" 2>/dev/null && grep -A30 "SEND_MESSAGE_SCHEMA" "$SEND_PY" | grep -q "trueconf.*chat_id\|trueconf:.*<"; then
+if grep -q "trueconf" "$SEND_PY" 2>/dev/null && grep -q "SEND_MESSAGE_SCHEMA" "$SEND_PY" 2>/dev/null && grep -A5 "SEND_MESSAGE_SCHEMA" "$SEND_PY" | grep -q "FILE SEND"; then
     log_skip "TrueConf in SEND_MESSAGE_SCHEMA target description"
 else
     log_patch "Adding TrueConf to SEND_MESSAGE_SCHEMA target description..."
     python3 - "$SEND_PY" << 'PYEOF'
-import sys, re
+import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-if "trueconf:<chat_id>" in content:
-    print("SKIP")
-    sys.exit(0)
-
-# Find the target description string in SEND_MESSAGE_SCHEMA and add trueconf
-# Look for the description ending with a platform example like 'yuanbao:...' and add trueconf before the closing quote
-pattern = r"((?:yuanbao|matrix|signal|slack|discord|telegram)[^\"']*(?:group|chat|DM|channel)[^\"']*)[\"']"
-m = re.search(pattern, content)
-if m:
-    insert_pos = m.end(1)
-    content = content[:insert_pos] + ", 'trueconf:<chat_id>'" + content[insert_pos:]
+old_desc = '"description": (\n        "Send a message to a connected messaging platform, or list available targets.\\n\\n"'
+new_desc = '''"description": (
+        "Send a message to a connected messaging platform, or list available targets.\\n\\n"
+        "FILE SEND: To send a file/image to the current chat, use target=\\"trueconf\\" (or the current platform name) and include MEDIA:<local_path> in the message parameter.\\n"
+        "Example: target=\\"trueconf\\", message=\\"MEDIA:/tmp/test_file.txt\\"\\n\\n"'''
+if old_desc in content and "FILE SEND" not in content:
+    content = content.replace(old_desc, new_desc, 1)
     with open(path, 'w') as f:
         f.write(content)
     print("OK")
 else:
-    print("SKIP: could not find target description anchor")
+    print("SKIP")
 PYEOF
     if [ $? -eq 0 ]; then
         log_ok "TrueConf added to SEND_MESSAGE_SCHEMA"
@@ -589,7 +585,34 @@ PYEOF
     fi
 fi
 
-# 4f. Non-media error message — include trueconf
+# 4f. Debug logging + Non-media error — include trueconf
+if grep -q "logger.warning.*send_message_tool.*target=" "$SEND_PY" 2>/dev/null; then
+    log_skip "send_message debug logging"
+else
+    log_patch "Adding send_message debug logging..."
+    python3 - "$SEND_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+old = 'def _handle_send(args):\n    """Send a message to a platform target."""'
+new = '''def _handle_send(args):
+    """Send a message to a platform target."""
+    import logging as _dbg_log
+    _dbg_log.getLogger(__name__).warning("send_message_tool: target=%s message=%s", args.get("target"), (args.get("message") or "")[:200])'''
+if old in content:
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP")
+PYEOF
+    if [ $? -eq 0 ]; then
+        log_ok "Debug logging added"
+        PATCHED=$((PATCHED + 1))
+    fi
+fi
 if grep -q "yuanbao, feishu and trueconf" "$SEND_PY" 2>/dev/null || grep -q "yuanbao, feishu, trueconf" "$SEND_PY" 2>/dev/null; then
     log_skip "Non-media error messages include trueconf"
 else
