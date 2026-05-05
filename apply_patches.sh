@@ -97,12 +97,18 @@ patch = '''
                 config.platforms[Platform.TRUECONF].extra["port"] = int(trueconf_port)
             except ValueError:
                 pass
+        # Auto-detect SSL: internal IPs default to no SSL, domains default to SSL
+        import re as _re
+        _is_internal_ip = bool(_re.match(r'^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)', trueconf_server))
+        _default_ssl = not _is_internal_ip
         trueconf_ssl = os.getenv("TRUECONF_USE_SSL", "").strip().lower()
         if trueconf_ssl:
-            config.platforms[Platform.TRUECONF].extra["use_ssl"] = trueconf_ssl in ("true", "1", "yes")
+            config.platforms[Platform.TRUECONF].extra["use_ssl"] = trueconf_ssl in ("true", "1", "yes", "y")
+        else:
+            config.platforms[Platform.TRUECONF].extra["use_ssl"] = _default_ssl
         trueconf_verify = os.getenv("TRUECONF_VERIFY_SSL", "").strip().lower()
         if trueconf_verify:
-            config.platforms[Platform.TRUECONF].extra["verify_ssl"] = trueconf_verify in ("true", "1", "yes")
+            config.platforms[Platform.TRUECONF].extra["verify_ssl"] = trueconf_verify in ("true", "1", "yes", "y")
         trueconf_home = os.getenv("TRUECONF_HOME_CHANNEL")
         if trueconf_home:
             config.platforms[Platform.TRUECONF].home_channel = HomeChannel(
