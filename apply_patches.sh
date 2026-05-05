@@ -428,21 +428,26 @@ async def _send_trueconf(extra, chat_id, message, media_files=None):
     if adapter is None:
         return {"error": "TrueConf adapter is not running. Start the gateway with trueconf platform enabled."}
 
+    # Parse MEDIA: prefix — LLM sends files as message="MEDIA:/path/to/file"
+    _media_paths = list(media_files) if media_files else []
+    _text = message or ""
+    if _text.strip().upper().startswith("MEDIA:"):
+        _path = _text.strip()[len("MEDIA:"):].strip()
+        if _path:
+            _media_paths.append(_path)
+            _text = ""  # Don't send "MEDIA:..." as text
+
     try:
-        # Send text
-        if message and message.strip():
-            result = await adapter.send(chat_id, message)
+        # Send text (only if not a MEDIA: message)
+        if _text and _text.strip():
+            result = await adapter.send(chat_id, _text)
             if not result.success:
                 return {"error": f"TrueConf send failed: {result.error}"}
 
         # Send media files
-        if media_files:
-            for media_item in media_files:
+        if _media_paths:
+            for media_path in _media_paths:
                 try:
-                    if isinstance(media_item, tuple):
-                        media_path = media_item[0]
-                    else:
-                        media_path = media_item
                     ext = os.path.splitext(media_path)[1].lower()
                     _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
                     if ext in _IMAGE_EXTS:
