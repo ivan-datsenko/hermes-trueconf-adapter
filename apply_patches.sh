@@ -231,7 +231,7 @@ if grep -q 'TRUECONF_ALLOWED_USERS' "$RUN_PY" 2>/dev/null; then
     log_skip "TRUECONF_ALLOWED_USERS in _any_allowlist"
 else
     log_patch "Adding TRUECONF_ALLOWED_USERS to _any_allowlist..."
-    sed -i "/QQ_ALLOWED_USERS/a\        'TRUECONF_ALLOWED_USERS'," "$RUN_PY"
+    sed -i "/'QQ_ALLOWED_USERS'/a\        'TRUECONF_ALLOWED_USERS'," "$RUN_PY"
     log_ok "TRUECONF_ALLOWED_USERS added"
     PATCHED=$((PATCHED + 1))
 fi
@@ -241,7 +241,7 @@ if grep -q 'TRUECONF_ALLOW_ALL_USERS' "$RUN_PY" 2>/dev/null; then
     log_skip "TRUECONF_ALLOW_ALL_USERS in _allow_all"
 else
     log_patch "Adding TRUECONF_ALLOW_ALL_USERS to _allow_all..."
-    sed -i "/QQ_ALLOW_ALL_USERS/a\        'TRUECONF_ALLOW_ALL_USERS'," "$RUN_PY"
+    sed -i "/'QQ_ALLOW_ALL_USERS'/a\        'TRUECONF_ALLOW_ALL_USERS'," "$RUN_PY"
     log_ok "TRUECONF_ALLOW_ALL_USERS added"
     PATCHED=$((PATCHED + 1))
 fi
