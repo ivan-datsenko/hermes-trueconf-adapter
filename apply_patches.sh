@@ -223,7 +223,7 @@ trueconf_entry = '''    {
              "help": "User login to deliver cron results and notifications to."},
         ],
     },
-]'''
+'''
 if ']' in content:
     # Find the last ] that closes the _PLATFORMS list
     # Match pattern: } on its own line followed by ]
