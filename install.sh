@@ -216,6 +216,14 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         ALLOWED_USERS=""
     fi
 
+    # ── Home channel (optional) ──
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}📬 Home channel${NC}"
+    echo -e "Home channel — это чат, куда бот будет слать результаты крон-задач."
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    ask "Логин пользователя для home channel (или пусто чтобы пропустить):"
+    read -r -p "  Enter: " TRUECONF_HOME_CHANNEL
+
     # ── Save to .env ──
     echo -e "${YELLOW}⏳ Saving settings...${NC}"
     if [ -f "$ENV_FILE" ]; then
@@ -236,6 +244,9 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         echo "TRUECONF_VERIFY_SSL=false"
         echo "TRUECONF_ALLOW_ALL_USERS=${ALLOW_ALL_USERS}"
         echo "TRUECONF_ALLOWED_USERS=${ALLOWED_USERS:-}"
+        if [ -n "$TRUECONF_HOME_CHANNEL" ]; then
+            echo "TRUECONF_HOME_CHANNEL=${TRUECONF_HOME_CHANNEL}"
+        fi
     } >> "$ENV_FILE"
     echo -e "${GREEN}✅${NC} Settings saved to ~/.hermes/.env"
 fi
