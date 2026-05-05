@@ -405,7 +405,7 @@ with open(path, 'r') as f:
 old_marker = "    # --- Non-media platforms ---"
 trueconf_block = """\
     elif platform == Platform.TRUECONF:
-        return await _send_trueconf(pconfig.extra, chat_id, chunk, media_files=media_files)
+        return await _send_trueconf(pconfig.extra, chat_id, message, media_files=media_files)
 """
 if old_marker in content:
     # Only add if not already present in _send_to_platform section
