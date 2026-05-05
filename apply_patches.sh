@@ -477,6 +477,47 @@ PYEOF
 fi
 
 # ───────────────────────────────────────────
+# 4e. SEND_MESSAGE_SCHEMA — add trueconf to target description
+# ───────────────────────────────────────────
+if grep -q "trueconf" "$SEND_PY" 2>/dev/null && grep -q "SEND_MESSAGE_SCHEMA" "$SEND_PY" 2>/dev/null && grep -A20 "SEND_MESSAGE_SCHEMA" "$SEND_PY" | grep -q "trueconf.*chat_id\|trueconf:.*<"; then
+    log_skip "TrueConf in SEND_MESSAGE_SCHEMA target description"
+else
+    log_patch "Adding TrueConf to SEND_MESSAGE_SCHEMA target description..."
+    python3 - "$SEND_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+# Add trueconf examples to the target description
+old = "'yuanbao:direct:<account_id>' (DM), 'yuanbao:group:<group_code>' (group chat)\""
+new = "'yuanbao:direct:<account_id>' (DM), 'yuanbao:group:<group_code>' (group chat), 'trueconf:<chat_id>'\""
+if old in content and "trueconf:<chat_id>" not in content:
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP")
+PYEOF
+    if [ $? -eq 0 ]; then
+        log_ok "TrueConf added to SEND_MESSAGE_SCHEMA"
+        PATCHED=$((PATCHED + 1))
+    fi
+fi
+
+# 4f. Non-media error message — include trueconf
+if grep -q "yuanbao, feishu and trueconf" "$SEND_PY" 2>/dev/null; then
+    log_skip "Non-media error messages include trueconf"
+else
+    log_patch "Updating error/warning messages to include trueconf..."
+    sed -i 's/yuanbao, feishu;"/yuanbao, feishu, trueconf;"/g' "$SEND_PY" 2>/dev/null
+    sed -i 's/yuanbao and feishu"/yuanbao, feishu and trueconf"/g' "$SEND_PY" 2>/dev/null
+    log_ok "Error messages updated"
+    PATCHED=$((PATCHED + 1))
+fi
+
+# ───────────────────────────────────────────
 # 5. Copy Adapter to gateway/platforms/
 # ───────────────────────────────────────────
 ADAPTER_SRC="${ADAPTER_DIR}/gateway/platforms/trueconf.py"
@@ -599,6 +640,52 @@ PYEOF
     fi
 else
     echo "  ⚠️ Warning: config.yaml not found, skipping"
+fi
+
+# ───────────────────────────────────────────
+# 8. gateway/run.py — Home channel notice fix
+# ───────────────────────────────────────────
+RUN_PY="${HERMES_DIR}/gateway/run.py"
+
+if [ -f "$RUN_PY" ]; then
+    if grep -q "get_home_channel.*source.platform" "$RUN_PY" 2>/dev/null; then
+        log_skip "Home channel notice checks config"
+    else
+        log_patch "Patching home channel notice to check config..."
+        python3 - "$RUN_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+# The notice fires when os.getenv(env_key) is empty.
+# Patch: also check config.get_home_channel() so env-loaded + config-based
+# home channels both suppress the notice.
+old = '            if not os.getenv(env_key):'
+new = '''            # TrueConf patch: also check gateway config for home channel
+            _home_from_config = False
+            try:
+                from gateway.config import load_gateway_config
+                _cfg = load_gateway_config()
+                _hc = _cfg.get_home_channel(source.platform)
+                if _hc:
+                    _home_from_config = True
+            except Exception:
+                pass
+            if not os.getenv(env_key) and not _home_from_config:'''
+if old in content:
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "Home channel notice patched"
+            PATCHED=$((PATCHED + 1))
+        fi
+    fi
 fi
 
 # ───────────────────────────────────────────
