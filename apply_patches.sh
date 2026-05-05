@@ -404,7 +404,49 @@ else
 fi
 
 # ───────────────────────────────────────────
-# 6. config.yaml — platform_toolsets for TrueConf
+# 6. Patch installed library — None-guard only (non-destructive)
+# ───────────────────────────────────────────
+BOT_PY="${SITE_PACKAGES}/trueconf/client/bot.py"
+
+if [ -f "$BOT_PY" ]; then
+    if grep -q "current_version is None" "$BOT_PY" 2>/dev/null; then
+        log_skip "bot.py None-guard (already present)"
+    else
+        log_patch "Adding None-guard to check_version..."
+        python3 - "$BOT_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if 'current_version is None' in content:
+    sys.exit(0)
+
+old = '    current_version = await self.server_version\n'
+guard = '    current_version = await self.server_version\n        if current_version is None:\n            loggers.chatbot.warning("\u26a0\ufe0f Could not determine server version, skipping version check")\n            return\n    '
+
+if old not in content:
+    print("FAIL: marker not found")
+    sys.exit(1)
+
+content = content.replace(old, guard, 1)
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "bot.py None-guard added"
+            PATCHED=$((PATCHED + 1))
+        else
+            echo "  ⚠️ Warning: Failed to add None-guard (non-critical)"
+        fi
+    fi
+else
+    log_skip "bot.py not found: $BOT_PY"
+fi
+
+# ───────────────────────────────────────────
+# 7. config.yaml — platform_toolsets for TrueConf
 # ───────────────────────────────────────────
 CONFIG_YAML="${HOME}/.hermes/config.yaml"
 
