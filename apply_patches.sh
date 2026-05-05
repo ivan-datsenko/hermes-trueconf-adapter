@@ -149,9 +149,10 @@ PYEOF
 fi
 
 # ───────────────────────────────────────────
-# 2. hermes_cli/platforms.py — PLATFORMS Dict
+# 2. hermes_cli/platforms.py + gateway.py — PLATFORMS Dict & Setup Wizard
 # ───────────────────────────────────────────
 PLATFORMS_PY="${HERMES_DIR}/hermes_cli/platforms.py"
+GATEWAY_PY="${HERMES_DIR}/hermes_cli/gateway.py"
 
 if [ ! -f "$PLATFORMS_PY" ]; then
     echo "✗ hermes_cli/platforms.py not found"
@@ -182,6 +183,81 @@ print("OK")
 PYEOF2
     log_ok "TrueConf in PLATFORMS dict added"
     PATCHED=$((PATCHED + 1))
+fi
+
+# 2b. hermes_cli/gateway.py — _PLATFORMS list (setup wizard)
+if [ ! -f "$GATEWAY_PY" ]; then
+    log_skip "hermes_cli/gateway.py not found (skipping setup wizard patch)"
+else
+    if grep -q '"key": "trueconf"' "$GATEWAY_PY" 2>/dev/null; then
+        log_skip "TrueConf in gateway.py _PLATFORMS"
+    else
+        log_patch "Adding TrueConf to setup wizard _PLATFORMS..."
+        python3 - "$GATEWAY_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+trueconf_entry = '''    {
+        "key": "trueconf",
+        "label": "TrueConf",
+        "emoji": "📹",
+        "token_var": "TRUECONF_SERVER",
+        "setup_instructions": [
+            "1. Get a TrueConf Server account (ask your admin)",
+            "2. Note the server address, your bot username and password",
+            "3. Enter them below — Hermes will connect via WebSocket",
+        ],
+        "vars": [
+            {"name": "TRUECONF_SERVER", "prompt": "Server address (e.g. video.example.com)", "password": False,
+             "help": "TrueConf Server hostname without https:// prefix."},
+            {"name": "TRUECONF_USERNAME", "prompt": "Bot username", "password": False,
+             "help": "The TrueConf login for your bot account."},
+            {"name": "TRUECONF_PASSWORD", "prompt": "Bot password", "password": True,
+             "help": "The TrueConf password for your bot account."},
+            {"name": "TRUECONF_ALLOWED_USERS", "prompt": "Allowed user logins (comma-separated, leave empty for open access)", "password": False,
+             "is_allowlist": True,
+             "help": "Optional — restrict who can message the bot."},
+            {"name": "TRUECONF_HOME_CHANNEL", "prompt": "Home channel login (for cron delivery, or empty)", "password": False,
+             "help": "User login to deliver cron results and notifications to."},
+        ],
+    },
+]'''
+if ']' in content:
+    # Find the last ] that closes the _PLATFORMS list
+    # Match pattern: } on its own line followed by ]
+    import re
+    pattern = '(\n]\ndef _all_platforms)'
+    m = re.search(pattern, content)
+    if m:
+        content = content[:m.start(1)] + '\n' + trueconf_entry + m.group(1) + content[m.end(1):]
+        with open(path, 'w') as f:
+            f.write(content)
+        print("OK")
+    else:
+        # Fallback: find ] after last dict entry
+        # Find last "key": "yuanbao" section and insert after it
+        idx = content.rfind('"key": "yuanbao"')
+        if idx >= 0:
+            # Find the closing ] after yuanbao
+            bracket_idx = content.find('\n]', idx)
+            if bracket_idx >= 0:
+                entry_no_bracket = trueconf_entry.rstrip().rstrip(']')
+                content = content[:bracket_idx] + '\n' + entry_no_bracket + content[bracket_idx:]
+                with open(path, 'w') as f:
+                    f.write(content)
+                print("OK")
+            else:
+                print("SKIP: could not find ] after yuanbao")
+        else:
+            print("SKIP: could not find yuanbao entry")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "TrueConf added to setup wizard"
+            PATCHED=$((PATCHED + 1))
+        fi
+    fi
 fi
 
 # ───────────────────────────────────────────
