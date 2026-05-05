@@ -405,7 +405,7 @@ with open(path, 'r') as f:
 old_marker = "    # --- Non-media platforms ---"
 trueconf_block = """\
     elif platform == Platform.TRUECONF:
-        return await _send_trueconf(pconfig.extra, chat_id, message, media_files=media_files)
+        return await _send_trueconf(pconfig.extra, chat_id, message or "", media_files=media_files)
 """
 if old_marker in content:
     # Only add if not already present in _send_to_platform section
@@ -548,7 +548,7 @@ if [ -f "$CONFIG_YAML" ]; then
     else
         log_patch "Adding TrueConf toolsets to config.yaml..."
         python3 - "$CONFIG_YAML" << 'PYEOF'
-import sys
+import sys, re
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
@@ -556,13 +556,7 @@ with open(path, 'r') as f:
 if '\n  trueconf:' in content or content.endswith('trueconf:'):
     sys.exit(0)
 
-# Find qqbot section and insert after it
-marker = '  qqbot:\n  - hermes-qqbot'
-if marker not in content:
-    marker = '  signal:\n  - hermes-signal'
-
-if marker in content:
-    trueconf_section = '''  trueconf:
+trueconf_section = '''  trueconf:
   - browser
   - clarify
   - code_execution
@@ -580,13 +574,25 @@ if marker in content:
   - vision
   - web
 '''
-    content = content.replace(marker, marker + '\n' + trueconf_section, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print("OK")
+
+# Strategy 1: Find existing platform sections (two-space indented word: followed by
+# two-space indented dash + hermes-) and insert after the last match.
+# Pattern: lines like "  <platform>:" followed by "  - hermes-..."
+pattern = r'(^ {2}\w+:\n(?: {2}- hermes-.*\n)+)'
+matches = list(re.finditer(pattern, content, re.MULTILINE))
+if matches:
+    last = matches[-1]
+    insert_pos = last.end()
+    content = content[:insert_pos] + '\n' + trueconf_section + content[insert_pos:]
 else:
-    print("FAIL: Could not find insertion point")
-    sys.exit(1)
+    # Strategy 2: append to end of file
+    if not content.endswith('\n'):
+        content += '\n'
+    content += trueconf_section
+
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
 PYEOF
         log_ok "TrueConf toolsets added to config.yaml"
         PATCHED=$((PATCHED + 1))

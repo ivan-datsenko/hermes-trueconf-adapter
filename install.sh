@@ -196,9 +196,8 @@ if [ "$SKIP_CONFIG" != "true" ]; then
     echo ""
     [ -z "$TRUECONF_PASSWORD" ] && die "Bot password cannot be empty"
 
-    ask "Use SSL/HTTPS?" "[Y/n]"
-    read -r -p "  Enter: " USE_SSL
-    USE_SSL="${USE_SSL:-y}"
+    # ── SSL: auto-detect (always default to y) ──
+    USE_SSL="y"
 
     # ── Access control ──
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -233,7 +232,7 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         echo "TRUECONF_SERVER=${TRUECONF_SERVER}"
         echo "TRUECONF_USERNAME=${TRUECONF_USERNAME}"
         echo "TRUECONF_PASSWORD=${TRUECONF_PASSWORD}"
-        echo "TRUECONF_USE_SSL=$(echo "$USE_SSL" | tr '[:upper:]' '[:lower:]')"
+        echo "TRUECONF_USE_SSL=y"
         echo "TRUECONF_VERIFY_SSL=false"
         echo "TRUECONF_ALLOW_ALL_USERS=${ALLOW_ALL_USERS}"
         echo "TRUECONF_ALLOWED_USERS=${ALLOWED_USERS:-}"
