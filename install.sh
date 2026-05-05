@@ -84,20 +84,21 @@ echo ""
 # ── 2. Install python-trueconf-bot ─────────────
 echo -e "${YELLOW}⏳ Installing python-trueconf-bot...${NC}"
 
-if [ ! -f "$PIP" ]; then
+# Ensure pip is available (ensurepip may not create bin/pip)
+if ! $PYTHON -m pip --version >/dev/null 2>&1; then
     echo "  pip not found, installing via ensurepip..."
     $PYTHON -m ensurepip --upgrade 2>&1 || die "Failed to install pip in venv"
 fi
 
 # Install from GitHub (original working source, not broken PyPI)
 echo "  Installing from GitHub (TrueConf/python-trueconf-bot)..."
-$PIP install --force-reinstall "git+https://github.com/TrueConf/python-trueconf-bot.git@e5cf988a06bf2b4e35b3b496df06b4f7e1a1775#egg=python-trueconf-bot" 2>&1 || \
-$PIP install "git+https://github.com/TrueConf/python-trueconf-bot.git#egg=python-trueconf-bot" 2>&1 || \
+$PYTHON -m pip install --force-reinstall "git+https://github.com/TrueConf/python-trueconf-bot.git@e5cf988a06bf2b4e35b3b496df06b4f7e1a1775#egg=python-trueconf-bot" 2>&1 || \
+$PYTHON -m pip install "git+https://github.com/TrueConf/python-trueconf-bot.git#egg=python-trueconf-bot" 2>&1 || \
 die "Failed to install python-trueconf-bot"
 
 # Fix httpx (bot pulls incompatible version)
 echo "  Fixing httpx..."
-$PIP install "httpx==0.28.1" 2>&1 || die "Failed to install httpx==0.28.1"
+$PYTHON -m pip install "httpx==0.28.1" 2>&1 || die "Failed to install httpx==0.28.1"
 
 if $PYTHON -c "from trueconf import Bot" 2>&1; then
     echo -e "${GREEN}✅${NC} python-trueconf-bot installed"
