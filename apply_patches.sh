@@ -415,48 +415,45 @@ if marker not in content:
 
 func = '''
 async def _send_trueconf(extra, chat_id, message, media_files=None):
-    """Send via TrueConf using the adapter's WebSocket send pipeline."""
+    """Send via TrueConf — reuses running adapter when available."""
+    import os, logging
+    _logger = logging.getLogger(__name__)
     try:
-        from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
-        if not check_trueconf_requirements():
-            return {"error": "TrueConf requirements not met. Need python-trueconf-bot."}
+        from gateway.platforms.trueconf import get_active_adapter, TrueConfAdapter, check_trueconf_requirements
     except ImportError:
         return {"error": "TrueConf adapter not available."}
 
+    # Reuse the running gateway adapter (fast path — no new connection)
+    adapter = get_active_adapter()
+    if adapter is None:
+        return {"error": "TrueConf adapter is not running. Start the gateway with trueconf platform enabled."}
+
     try:
-        from gateway.config import PlatformConfig
-        pconfig = PlatformConfig(extra=extra)
-        adapter = TrueConfAdapter(pconfig)
-        connected = await adapter.connect()
-        if not connected:
-            return {"error": f"TrueConf: failed to connect - {adapter.fatal_error_message or 'unknown error'}"}
-        try:
+        # Send text
+        if message and message.strip():
             result = await adapter.send(chat_id, message)
             if not result.success:
                 return {"error": f"TrueConf send failed: {result.error}"}
 
-            # Send media files if any
-            if media_files:
-                for media_item in media_files:
-                    try:
-                        import os
-                        if isinstance(media_item, tuple):
-                            media_path = media_item[0]
-                        else:
-                            media_path = media_item
-                        ext = os.path.splitext(media_path)[1].lower()
-                        _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
-                        if ext in _IMAGE_EXTS:
-                            await adapter.send_image_file(chat_id, media_path)
-                        else:
-                            await adapter.send_document(chat_id, media_path)
-                    except Exception as e:
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.error("[TrueConf] Failed to send media %s: %s", media_path, e)
-            return {"success": True, "platform": "trueconf", "chat_id": chat_id, "message_id": result.message_id}
-        finally:
-            await adapter.disconnect()
+        # Send media files
+        if media_files:
+            for media_item in media_files:
+                try:
+                    if isinstance(media_item, tuple):
+                        media_path = media_item[0]
+                    else:
+                        media_path = media_item
+                    ext = os.path.splitext(media_path)[1].lower()
+                    _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+                    if ext in _IMAGE_EXTS:
+                        await adapter.send_image_file(chat_id, media_path)
+                    else:
+                        await adapter.send_document(chat_id, media_path)
+                except Exception as e:
+                    _logger.error("[TrueConf] Failed to send media %s: %s", media_path, e)
+                    return {"error": f"TrueConf media send failed: {e}"}
+
+        return {"success": True, "platform": "trueconf", "chat_id": chat_id}
     except Exception as e:
         return {"error": f"TrueConf send failed: {e}"}
 
