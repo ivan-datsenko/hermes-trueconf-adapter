@@ -441,7 +441,9 @@ class TrueConfAdapter(BasePlatformAdapter):
             )
 
             # Start WebSocket monitor — detects disconnects and auto-reconnects
-            self._monitor_task = asyncio.create_task(self._ws_monitor())
+            # DISABLED: causes "blinking" — bot appears then disappears from network
+            # The library handles its own reconnection; monitor creates duplicate tasks
+            self._monitor_task = None  # was: asyncio.create_task(self._ws_monitor())
 
             return True
 

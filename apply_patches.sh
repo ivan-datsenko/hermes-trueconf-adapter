@@ -390,6 +390,92 @@ PYEOF
     PATCHED=$((PATCHED + 1))
 fi
 
+# 4c. TrueConf media handler in _send_to_platform
+if grep -q "platform == Platform.TRUECONF" "$SEND_PY" 2>/dev/null && grep -q "_send_trueconf(pconfig" "$SEND_PY" 2>/dev/null; then
+    log_skip "TrueConf media handler in _send_to_platform"
+else
+    log_patch "Adding TrueConf media handler to _send_to_platform..."
+    python3 - "$SEND_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+# 1. Add TrueConf handler before "# --- Non-media platforms ---"
+old_marker = "    # --- Non-media platforms ---"
+trueconf_block = """\
+    elif platform == Platform.TRUECONF:
+        return await _send_trueconf(pconfig.extra, chat_id, chunk, media_files=media_files)
+"""
+if old_marker in content:
+    # Only add if not already present in _send_to_platform section
+    parts = content.split(old_marker)
+    if len(parts) >= 2 and "platform == Platform.TRUECONF" not in parts[0].rsplit("def _send_to_platform", 1)[-1]:
+        content = parts[0] + trueconf_block + old_marker + parts[1]
+
+# 2. Update error message to include trueconf
+old_error = '"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu; "'
+new_error = '"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf; "'
+content = content.replace(old_error, new_error)
+
+# 3. Update warning message to include trueconf
+old_warning = '"native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu"'
+new_warning = '"native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf"'
+content = content.replace(old_warning, new_warning)
+
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
+PYEOF
+    if [ $? -eq 0 ]; then
+        log_ok "TrueConf media handler added"
+        PATCHED=$((PATCHED + 1))
+    else
+        echo "  ⚠️ Warning: Failed to add TrueConf media handler"
+    fi
+fi
+
+# 4d. _PLATFORM_CONNECTED_CHECKERS — TrueConf entry
+if grep -q '_PLATFORM_CONNECTED_CHECKERS' "$CONFIG_PY" 2>/dev/null && grep -q 'Platform.TRUECONF' "$CONFIG_PY" 2>/dev/null && grep -A1 '_PLATFORM_CONNECTED_CHECKERS' "$CONFIG_PY" | grep -q 'TRUECONF'; then
+    log_skip "_PLATFORM_CONNECTED_CHECKERS TrueConf entry"
+else
+    # Check if _PLATFORM_CONNECTED_CHECKERS exists in config.py
+    if grep -q '_PLATFORM_CONNECTED_CHECKERS' "$CONFIG_PY" 2>/dev/null; then
+        log_patch "Adding TrueConf to _PLATFORM_CONNECTED_CHECKERS..."
+        python3 - "$CONFIG_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+# Find the dictionary and add TrueConf entry
+# Pattern: look for the closing } of _PLATFORM_CONNECTED_CHECKERS and insert before it
+import re
+# Find last entry before closing brace in _PLATFORM_CONNECTED_CHECKERS
+pattern = r'(_PLATFORM_CONNECTED_CHECKERS\s*=\s*\{[^}]*)(Platform\.\w+:\s*lambda[^,}]+,?\s*\n)'
+matches = list(re.finditer(pattern, content, re.DOTALL))
+if matches:
+    last_match = matches[-1]
+    insert_pos = last_match.end()
+    trueconf_entry = '    Platform.TRUECONF: lambda cfg: bool(cfg.extra.get("server") and (cfg.token or (cfg.extra.get("username") and cfg.extra.get("password")))),\n'
+    content = content[:insert_pos] + trueconf_entry + content[insert_pos:]
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP: Could not find _PLATFORM_CONNECTED_CHECKERS dictionary")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "_PLATFORM_CONNECTED_CHECKERS TrueConf entry added"
+            PATCHED=$((PATCHED + 1))
+        else
+            echo "  ⚠️ Warning: Failed to add _PLATFORM_CONNECTED_CHECKERS entry"
+        fi
+    else
+        log_skip "_PLATFORM_CONNECTED_CHECKERS not found in config.py (may not exist in this version)"
+    fi
+fi
+
 # ───────────────────────────────────────────
 # 5. Copy Adapter to gateway/platforms/
 # ───────────────────────────────────────────
