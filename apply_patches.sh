@@ -397,16 +397,38 @@ else
     PATCHED=$((PATCHED + 1))
 fi
 
-# 4b. _send_trueconf Function
-if grep -q 'async def _send_trueconf' "$SEND_PY" 2>/dev/null; then
-    log_skip "_send_trueconf function"
+# 4b. _send_trueconf Function (replaces old version if MEDIA: parsing missing)
+if grep -q 'async def _send_trueconf' "$SEND_PY" 2>/dev/null && grep -q '_text.strip().upper().startswith("MEDIA:")' "$SEND_PY" 2>/dev/null; then
+    log_skip "_send_trueconf function (has MEDIA: parsing)"
 else
-    log_patch "Adding _send_trueconf function..."
+    if grep -q 'async def _send_trueconf' "$SEND_PY" 2>/dev/null; then
+        log_patch "Replacing _send_trueconf (missing MEDIA: parsing)..."
+    else
+        log_patch "Adding _send_trueconf function..."
+    fi
     python3 - "$SEND_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
+
+# Remove old _send_trueconf if present (prevents duplicate functions)
+lines = content.split('\n')
+new_lines = []
+skip = False
+for line in lines:
+    if 'async def _send_trueconf(' in line:
+        skip = True
+        continue
+    if skip:
+        # Stop skipping at next top-level def, async def, or marker comment
+        stripped = line.lstrip()
+        if stripped.startswith('async def ') or stripped.startswith('def ') or stripped.startswith('# ---'):
+            skip = False
+        else:
+            continue
+    new_lines.append(line)
+content = '\n'.join(new_lines)
 
 # Insert before "# --- Registry ---" or "# --- Non-media platforms ---"
 marker = '# --- Registry ---'
