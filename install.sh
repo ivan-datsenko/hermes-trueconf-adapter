@@ -92,7 +92,7 @@ fi
 
 # Install from GitHub (original working source, not broken PyPI)
 echo "  Installing from GitHub (TrueConf/python-trueconf-bot)..."
-$PYTHON -m pip install --force-reinstall "git+https://github.com/TrueConf/python-trueconf-bot.git@e5cf988a06bf2b4e35b3b496df06b4f7e1a1775#egg=python-trueconf-bot" 2>&1 || \
+$PYTHON -m pip install --force-reinstall "git+https://github.com/TrueConf/python-trueconf-bot.git#egg=python-trueconf-bot" 2>&1 || \
 $PYTHON -m pip install "git+https://github.com/TrueConf/python-trueconf-bot.git#egg=python-trueconf-bot" 2>&1 || \
 die "Failed to install python-trueconf-bot"
 
