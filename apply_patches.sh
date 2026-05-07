@@ -1,16 +1,31 @@
 #!/bin/bash
-# ===========================================
+# ============================================
 # TrueConf Adapter — Auto-Patch Script v2.0
-# ===========================================
-# Applies patches to hermes-agent core files.
+# ============================================
+# Applies all necessary patches to hermes-agent core files.
 # Safe to run multiple times (idempotent).
 #
 # Usage: bash apply_patches.sh [HERMES_DIR]
-# ===========================================
+# ============================================
 
 set -e
 
-HERMES_DIR="${1:-${HERMES_DIR:-$HOME/.hermes/hermes-agent}}"
+# Usage: bash apply_patches.sh [HERMES_DIR]
+# Auto-detects if not provided
+_DETECTED=""
+if command -v hermes >/dev/null 2>HERMES_DIR="${1:-${HERMES_DIR:-$HOME/.hermes/hermes-agent}}"1; then
+    _BIN=$(command -v hermes)
+    while [ -L "$_BIN" ]; do _BIN=$(readlink -f "$_BIN"); done
+    _DIR=$(dirname "$_BIN")
+    for _ in 1 2 3 4; do
+        if [ -d "$_DIR/gateway" ]; then
+            _DETECTED="$_DIR"
+            break 2
+        fi
+        _DIR=$(dirname "$_DIR")
+    done
+fi
+HERMES_DIR="${1:-${HERMES_DIR:-${_DETECTED:-/usr/local/lib/hermes-agent}}}"
 PATCHED=0
 
 log_ok()   { echo "  ✓ $1"; }
@@ -25,10 +40,10 @@ VENV_DIR="${HERMES_DIR}/venv"
 if [ -d "${VENV_DIR}/lib" ]; then
     PYTHON_VER=$(ls "${VENV_DIR}/lib/" | grep -oP 'python3\.\d+' | head -1)
     if [ -z "$PYTHON_VER" ]; then
-        PYTHON_VER="python3.11"  # fallback
+        PYTHON_VER="python3.12"  # fallback
     fi
 else
-    PYTHON_VER="python3.11"  # fallback
+    PYTHON_VER="python3.12"  # fallback
 fi
 SITE_PACKAGES="${VENV_DIR}/lib/${PYTHON_VER}/site-packages"
 
@@ -40,7 +55,7 @@ echo "  Python: $PYTHON_VER"
 echo ""
 
 # ───────────────────────────────────────────
-# 1. gateway/config.py — Platform Enum & Auto-Detect
+# 1. gateway/config.py — Platform enum
 # ───────────────────────────────────────────
 CONFIG_PY="${HERMES_DIR}/gateway/config.py"
 
@@ -49,7 +64,7 @@ if [ ! -f "$CONFIG_PY" ]; then
     exit 1
 fi
 
-# 1a. Platform.TRUECONF Enum Entry
+# 1a. Platform.TRUECONF in enum
 if grep -q 'TRUECONF = "trueconf"' "$CONFIG_PY" 2>/dev/null; then
     log_skip "Platform.TRUECONF enum"
 else
@@ -59,7 +74,7 @@ else
     PATCHED=$((PATCHED + 1))
 fi
 
-# 1b. Auto-Detect Block
+# 1b. Auto-detect block
 if grep -q 'trueconf_server = os.getenv' "$CONFIG_PY" 2>/dev/null; then
     log_skip "auto-detect block in config.py"
 else
@@ -70,9 +85,14 @@ path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-marker = '    # Feishu / Lark'
-if marker not in content:
-    marker = '    feishu_app_id = os.getenv("FEISHU_APP_ID")'
+marker = 'trueconf_server = os.getenv("TRUECONF_SERVER"'
+if marker in content:
+    sys.exit(0)
+
+# Find insertion point: after DingTalk home_channel block or before Feishu
+insert_after = '    # Feishu / Lark'
+if insert_after not in content:
+    insert_after = '    feishu_app_id = os.getenv("FEISHU_APP_ID")'
 
 patch = '''
     # TrueConf
@@ -97,18 +117,12 @@ patch = '''
                 config.platforms[Platform.TRUECONF].extra["port"] = int(trueconf_port)
             except ValueError:
                 pass
-        # Auto-detect SSL: internal IPs default to no SSL, domains default to SSL
-        import re as _re
-        _is_internal_ip = bool(_re.match(r'^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)', trueconf_server))
-        _default_ssl = not _is_internal_ip
         trueconf_ssl = os.getenv("TRUECONF_USE_SSL", "").strip().lower()
         if trueconf_ssl:
-            config.platforms[Platform.TRUECONF].extra["use_ssl"] = trueconf_ssl in ("true", "1", "yes", "y")
-        else:
-            config.platforms[Platform.TRUECONF].extra["use_ssl"] = _default_ssl
+            config.platforms[Platform.TRUECONF].extra["use_ssl"] = trueconf_ssl in ("true", "1", "yes")
         trueconf_verify = os.getenv("TRUECONF_VERIFY_SSL", "").strip().lower()
         if trueconf_verify:
-            config.platforms[Platform.TRUECONF].extra["verify_ssl"] = trueconf_verify in ("true", "1", "yes", "y")
+            config.platforms[Platform.TRUECONF].extra["verify_ssl"] = trueconf_verify in ("true", "1", "yes")
         trueconf_home = os.getenv("TRUECONF_HOME_CHANNEL")
         if trueconf_home:
             config.platforms[Platform.TRUECONF].home_channel = HomeChannel(
@@ -116,8 +130,10 @@ patch = '''
                 chat_id=trueconf_home,
                 name=os.getenv("TRUECONF_HOME_CHANNEL_NAME", "Home"),
             )
+
 '''
-content = content.replace(marker, patch + marker, 1)
+
+content = content.replace(insert_after, patch + insert_after, 1)
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
@@ -127,32 +143,43 @@ PYEOF
 fi
 
 # 1c. get_connected_platforms — TrueConf check
-if grep -q 'Platform.TRUECONF and config.extra' "$CONFIG_PY" 2>/dev/null; then
-    log_skip "get_connected_platforms TrueConf check"
-else
-    log_patch "Adding TrueConf to get_connected_platforms..."
-    python3 - "$CONFIG_PY" << 'PYEOF'
+if grep -q 'Platform.QQBOT and config.extra.get("app_id")' "$CONFIG_PY" 2>/dev/null; then
+    if grep -q 'Platform.TRUECONF and config.extra' "$CONFIG_PY" 2>/dev/null; then
+        log_skip "get_connected_platforms TrueConf check"
+    else
+        log_patch "Adding TrueConf to get_connected_platforms..."
+        python3 - "$CONFIG_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
+if 'Platform.TRUECONF and config.extra' in content:
+    sys.exit(0)
+
 marker = '            elif platform == Platform.QQBOT and config.extra.get("app_id") and config.extra.get("client_secret"):\n                connected.append(platform)'
-replacement = marker + '''\n            # TrueConf uses extra dict for server + credentials\n            elif platform == Platform.TRUECONF and config.extra.get("server") and (\n                config.token or config.extra.get("token")\n                or (config.extra.get("username") and config.extra.get("password"))\n            ):\n                connected.append(platform)'''
+replacement = marker + '''
+            # TrueConf uses extra dict for server + credentials
+            elif platform == Platform.TRUECONF and config.extra.get("server") and (
+                config.token or config.extra.get("token")
+                or (config.extra.get("username") and config.extra.get("password"))
+            ):
+                connected.append(platform)'''
+
 content = content.replace(marker, replacement, 1)
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
 PYEOF
-    log_ok "get_connected_platforms TrueConf check added"
-    PATCHED=$((PATCHED + 1))
+        log_ok "get_connected_platforms TrueConf check added"
+        PATCHED=$((PATCHED + 1))
+    fi
 fi
 
 # ───────────────────────────────────────────
-# 2. hermes_cli/platforms.py + gateway.py — PLATFORMS Dict & Setup Wizard
+# 2. hermes_cli/platforms.py — PLATFORMS dict
 # ───────────────────────────────────────────
 PLATFORMS_PY="${HERMES_DIR}/hermes_cli/platforms.py"
-GATEWAY_PY="${HERMES_DIR}/hermes_cli/gateway.py"
 
 if [ ! -f "$PLATFORMS_PY" ]; then
     echo "✗ hermes_cli/platforms.py not found"
@@ -163,33 +190,32 @@ if grep -q '"trueconf"' "$PLATFORMS_PY" 2>/dev/null; then
     log_skip "TrueConf in PLATFORMS dict"
 else
     log_patch "Adding TrueConf to PLATFORMS dict..."
-    python3 - "$PLATFORMS_PY" << 'PYEOF2'
+    python3 - "$PLATFORMS_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-import re
-# Find the closing ]) of the PLATFORMS OrderedDict and insert before it
-pattern = r'(\]\))'
-matches = list(re.finditer(pattern, content))
-if matches:
-    insert_pos = matches[0].start()
-    trueconf_line = '    ("trueconf",       PlatformInfo(label="📹 TrueConf",        default_toolset="hermes-trueconf")),'
-    content = content[:insert_pos] + trueconf_line + "\n" + content[insert_pos:]
+if '"trueconf"' in content:
+    sys.exit(0)
+
+# Insert before the closing ]) of PLATFORMS OrderedDict
+# Find the last entry before ])
+marker = '    ("api_server",     PlatformInfo(label="🌐 API Server",      default_toolset="hermes-api-server")),'
+replacement = marker + '''
+    ("trueconf",       PlatformInfo(label="📹 TrueConf",        default_toolset="hermes-trueconf")),'''
+
+content = content.replace(marker, replacement, 1)
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
-PYEOF2
+PYEOF
     log_ok "TrueConf in PLATFORMS dict added"
     PATCHED=$((PATCHED + 1))
 fi
 
-# 2b. hermes_cli/gateway.py — SKIPPED (cosmetic, breaks file with double ]])
-log_skip "hermes_cli/gateway.py _PLATFORMS (cosmetic, not needed)"
-
 # ───────────────────────────────────────────
-# 3. gateway/run.py — Adapter Creation & Auth Maps
+# 3. gateway/run.py — TrueConfAdapter creation + auth maps
 # ───────────────────────────────────────────
 RUN_PY="${HERMES_DIR}/gateway/run.py"
 
@@ -198,25 +224,32 @@ if [ ! -f "$RUN_PY" ]; then
     exit 1
 fi
 
-# 3a. TrueConfAdapter Creation Block
-if grep -q 'Platform.TRUECONF' "$RUN_PY" 2>/dev/null; then
-    log_skip "TrueConfAdapter creation block"
+# 3a. TrueConfAdapter creation block
+# IMPORTANT: check for TrueConfAdapter specifically, NOT just Platform.TRUECONF
+# (auth maps in 3b also contain Platform.TRUECONF and would give false positive)
+if grep -q 'TrueConfAdapter' "$RUN_PY" 2>/dev/null; then
+    log_skip "TrueConfAdapter in run.py"
 else
-    log_patch "Adding TrueConfAdapter creation block..."
+    log_patch "Adding TrueConfAdapter creation..."
     python3 - "$RUN_PY" << 'PYEOF'
 import sys, re
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-# Find stable anchor: "return None" before "def _is_user_authorized"
+if 'TrueConfAdapter' in content:
+    sys.exit(0)
+
+# Stable insertion: find "return None" right before "def _is_user_authorized"
+# This works regardless of which platforms exist above (QQ, Yuanbao, etc.)
 pattern = r'(\n        return None\n    def _is_user_authorized)'
 match = re.search(pattern, content)
 if not match:
-    print("FAIL: Could not find insertion point")
+    print("WARN: could not find insertion point in run.py")
     sys.exit(1)
 
-block = '''
+tc_block = '''
+
         elif platform == Platform.TRUECONF:
             from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
             if not check_trueconf_requirements():
@@ -224,416 +257,360 @@ block = '''
                 return None
             return TrueConfAdapter(config)
 '''
-content = content.replace(match.group(1), block + match.group(1), 1)
+
+content = content[:match.start()] + tc_block + match.group(0) + content[match.end():]
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
 PYEOF
-    log_ok "TrueConfAdapter creation block added"
+    log_ok "TrueConfAdapter creation added"
     PATCHED=$((PATCHED + 1))
 fi
 
-# 3b. Authorization Maps (4 patches)
-# _any_allowlist
-if grep -q 'TRUECONF_ALLOWED_USERS' "$RUN_PY" 2>/dev/null; then
+# 3b. run.py — Authorization maps
+AUTH_PATCHED=0
+
+# Check _allow_all list
+if grep -q '"TRUECONF_ALLOW_ALL_USERS"' "$RUN_PY" 2>/dev/null; then
+    log_skip "TRUECONF_ALLOW_ALL_USERS in _allow_all list"
+else
+    log_patch "Adding TRUECONF_ALLOW_ALL_USERS to _allow_all list..."
+    sed -i '/"QQ_ALLOW_ALL_USERS")/{s/)$/                       "TRUECONF_ALLOW_ALL_USERS")/}' "$RUN_PY"
+    log_ok "TRUECONF_ALLOW_ALL_USERS added to _allow_all"
+    AUTH_PATCHED=$((AUTH_PATCHED + 1))
+fi
+
+# Check _any_allowlist
+if grep -q '"TRUECONF_ALLOWED_USERS"' "$RUN_PY" 2>/dev/null; then
     log_skip "TRUECONF_ALLOWED_USERS in _any_allowlist"
 else
     log_patch "Adding TRUECONF_ALLOWED_USERS to _any_allowlist..."
-    sed -i "/'QQ_ALLOWED_USERS'/a\        'TRUECONF_ALLOWED_USERS'," "$RUN_PY"
-    log_ok "TRUECONF_ALLOWED_USERS added"
-    PATCHED=$((PATCHED + 1))
+    sed -i '/"GATEWAY_ALLOWED_USERS")/{s/.*GATEWAY_ALLOWED_USERS.*/                       "QQ_ALLOWED_USERS",\n                       "TRUECONF_ALLOWED_USERS",\n                       "GATEWAY_ALLOWED_USERS")/;}' "$RUN_PY"
+    log_ok "TRUECONF_ALLOWED_USERS added to _any_allowlist"
+    AUTH_PATCHED=$((AUTH_PATCHED + 1))
 fi
 
-# _allow_all
-if grep -q 'TRUECONF_ALLOW_ALL_USERS' "$RUN_PY" 2>/dev/null; then
-    log_skip "TRUECONF_ALLOW_ALL_USERS in _allow_all"
-else
-    log_patch "Adding TRUECONF_ALLOW_ALL_USERS to _allow_all..."
-    sed -i "/'QQ_ALLOW_ALL_USERS'/a\        'TRUECONF_ALLOW_ALL_USERS'," "$RUN_PY"
-    log_ok "TRUECONF_ALLOW_ALL_USERS added"
-    PATCHED=$((PATCHED + 1))
-fi
-
-# platform_allow_all_map
-if grep -q "Platform.TRUECONF:.*TRUECONF_ALLOW_ALL_USERS" "$RUN_PY" 2>/dev/null; then
-    log_skip "Platform.TRUECONF in platform_allow_all_map"
+# Check platform_allow_all_map (first occurrence)
+if grep -q 'Platform.TRUECONF.*TRUECONF_ALLOW_ALL_USERS' "$RUN_PY" 2>/dev/null; then
+    log_skip "TrueConf in platform_allow_all_map"
 else
     log_patch "Adding TrueConf to platform_allow_all_map..."
     python3 - "$RUN_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
-    content = f.read()
+    lines = f.readlines()
 
-marker = 'Platform.QQBOT: "QQ_ALLOW_ALL_USERS",'
-replacement = marker + '\n        Platform.TRUECONF: "TRUECONF_ALLOW_ALL_USERS",'
-content = content.replace(marker, replacement, 1)
-with open(path, 'w') as f:
-    f.write(content)
-print("OK")
+in_allow_all_map = False
+allow_all_count = 0
+inserted = False
+for i, line in enumerate(lines):
+    if 'platform_allow_all_map' in line:
+        allow_all_count += 1
+        if allow_all_count == 1:
+            in_allow_all_map = True
+    if in_allow_all_map and 'QQ_ALLOW_ALL_USERS' in line and not inserted:
+        indent = line[:len(line) - len(line.lstrip())]
+        lines.insert(i + 1, indent + 'Platform.TRUECONF: "TRUECONF_ALLOW_ALL_USERS",\n')
+        inserted = True
+        break
+    if in_allow_all_map and line.strip() == '}':
+        in_allow_all_map = False
+
+if inserted:
+    with open(path, 'w') as f:
+        f.writelines(lines)
+    print("OK")
+else:
+    print("SKIP")
 PYEOF
     log_ok "TrueConf added to platform_allow_all_map"
-    PATCHED=$((PATCHED + 1))
+    AUTH_PATCHED=$((AUTH_PATCHED + 1))
 fi
 
-# platform_env_map (x2)
-if grep -q "Platform.TRUECONF:.*TRUECONF_ALLOWED_USERS" "$RUN_PY" 2>/dev/null; then
-    log_skip "Platform.TRUECONF in platform_env_map"
+# Check platform_env_map (first occurrence)
+if grep -q 'Platform.TRUECONF.*TRUECONF_ALLOWED_USERS' "$RUN_PY" 2>/dev/null; then
+    log_skip "TrueConf in platform_env_map"
 else
     log_patch "Adding TrueConf to platform_env_map..."
     python3 - "$RUN_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
-    content = f.read()
+    lines = f.readlines()
 
-# First occurrence (in _is_user_authorized)
-marker1 = 'Platform.QQBOT: "QQ_ALLOWED_USERS",'
-replacement1 = marker1 + '\n        Platform.TRUECONF: "TRUECONF_ALLOWED_USERS",'
-content = content.replace(marker1, replacement1, 1)
+in_env_map = False
+env_map_count = 0
+inserted = False
+for i, line in enumerate(lines):
+    if 'platform_env_map' in line and 'group' not in line:
+        env_map_count += 1
+        if env_map_count == 1:
+            in_env_map = True
+    if in_env_map and 'QQ_ALLOWED_USERS' in line and 'group' not in line and not inserted:
+        indent = line[:len(line) - len(line.lstrip())]
+        lines.insert(i + 1, indent + 'Platform.TRUECONF: "TRUECONF_ALLOWED_USERS",\n')
+        inserted = True
+        break
+    if in_env_map and line.strip() == '}':
+        in_env_map = False
 
-# Second occurrence (in _handle_unauthorized)
-marker2 = 'Platform.QQBOT: "QQ_ALLOWED_USERS",'
-replacement2 = marker2 + '\n        Platform.TRUECONF: "TRUECONF_ALLOWED_USERS",'
-content = content.replace(marker2, replacement2, 1)
-
-with open(path, 'w') as f:
-    f.write(content)
-print("OK")
+if inserted:
+    with open(path, 'w') as f:
+        f.writelines(lines)
+    print("OK")
+else:
+    print("SKIP")
 PYEOF
     log_ok "TrueConf added to platform_env_map"
-    PATCHED=$((PATCHED + 1))
+    AUTH_PATCHED=$((AUTH_PATCHED + 1))
 fi
 
+# Check second platform_env_map (in _handle_unauthorized)
+SECOND_ENV=$(grep -c 'platform_env_map' "$RUN_PY")
+if [ "$SECOND_ENV" -ge 2 ]; then
+    RESULT=$(python3 - "$RUN_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    lines = f.readlines()
+
+env_map_count = 0
+in_second = False
+for i, line in enumerate(lines):
+    if 'platform_env_map' in line and 'group' not in line:
+        env_map_count += 1
+        if env_map_count == 2:
+            in_second = True
+    if in_second and 'QQ_ALLOWED_USERS' in line:
+        block_end = i + 5
+        block = ''.join(lines[i:min(block_end, len(lines))])
+        if 'TRUECONF' not in block:
+            print("NEEDS_PATCH")
+        else:
+            print("OK")
+        break
+PYEOF
+    )
+    if [ "$RESULT" = "NEEDS_PATCH" ]; then
+        log_patch "Adding TrueConf to second platform_env_map..."
+        python3 - "$RUN_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    lines = f.readlines()
+
+env_map_count = 0
+in_second = False
+for i, line in enumerate(lines):
+    if 'platform_env_map' in line and 'group' not in line:
+        env_map_count += 1
+        if env_map_count == 2:
+            in_second = True
+    if in_second and 'QQ_ALLOWED_USERS' in line:
+        indent = line[:len(line) - len(line.lstrip())]
+        lines.insert(i + 1, indent + 'Platform.TRUECONF:  "TRUECONF_ALLOWED_USERS",\n')
+        break
+
+with open(path, 'w') as f:
+    f.writelines(lines)
+print("OK")
+PYEOF
+        log_ok "TrueConf added to second platform_env_map"
+        AUTH_PATCHED=$((AUTH_PATCHED + 1))
+    else
+        log_skip "TrueConf in second platform_env_map"
+    fi
+fi
+
+PATCHED=$((PATCHED + AUTH_PATCHED))
+
 # ───────────────────────────────────────────
-# 4. tools/send_message_tool.py — Message Sending
+# 3c. tools/send_message_tool.py — TrueConf sending
 # ───────────────────────────────────────────
 SEND_PY="${HERMES_DIR}/tools/send_message_tool.py"
 
-if [ ! -f "$SEND_PY" ]; then
-    echo "✗ tools/send_message_tool.py not found"
-    exit 1
-fi
+if [ -f "$SEND_PY" ]; then
+    SEND_PATCHED=0
 
-# 4a. platform_map
-if grep -q '"trueconf": Platform.TRUECONF' "$SEND_PY" 2>/dev/null; then
-    log_skip "TrueConf in platform_map"
-else
-    log_patch "Adding TrueConf to platform_map..."
-    sed -i '/"qqbot": Platform.QQBOT,/a\    "trueconf": Platform.TRUECONF,' "$SEND_PY"
-    log_ok "TrueConf added to platform_map"
-    PATCHED=$((PATCHED + 1))
-fi
+    # platform_map
+    if grep -q '"trueconf"' "$SEND_PY" 2>/dev/null; then
+        log_skip "TrueConf in send_message platform_map"
+    else
+        log_patch "Adding TrueConf to send_message platform_map..."
+        sed -i '/"sms": Platform.SMS,/a\        "trueconf": Platform.TRUECONF,' "$SEND_PY"
+        log_ok "TrueConf added to platform_map"
+        SEND_PATCHED=$((SEND_PATCHED + 1))
+    fi
 
-# 4b. _send_trueconf Function (replaces old version if MEDIA: parsing missing)
-if grep -q 'async def _send_trueconf' "$SEND_PY" 2>/dev/null && grep -q '_text.strip().upper().startswith("MEDIA:")' "$SEND_PY" 2>/dev/null; then
-    log_skip "_send_trueconf function (has MEDIA: parsing)"
-else
-    if grep -q 'async def _send_trueconf' "$SEND_PY" 2>/dev/null; then
-        log_patch "Replacing _send_trueconf (missing MEDIA: parsing)..."
+    # _send_trueconf function
+    if grep -q '_send_trueconf' "$SEND_PY" 2>/dev/null; then
+        log_skip "_send_trueconf function"
     else
         log_patch "Adding _send_trueconf function..."
-    fi
-    python3 - "$SEND_PY" << 'PYEOF'
+        python3 - "$SEND_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-# Remove old _send_trueconf if present (prevents duplicate functions)
-lines = content.split('\n')
-new_lines = []
-skip = False
-for line in lines:
-    if 'async def _send_trueconf(' in line:
-        skip = True
-        continue
-    if skip:
-        # Stop skipping at next top-level def, async def, or marker comment
-        stripped = line.lstrip()
-        if stripped.startswith('async def ') or stripped.startswith('def ') or stripped.startswith('# ---'):
-            skip = False
-        else:
-            continue
-    new_lines.append(line)
-content = '\n'.join(new_lines)
+if '_send_trueconf' in content:
+    sys.exit(0)
 
-# Insert before "# --- Registry ---" or "# --- Non-media platforms ---"
 marker = '# --- Registry ---'
-if marker not in content:
-    marker = '# --- Non-media platforms ---'
-
 func = '''
+
 async def _send_trueconf(extra, chat_id, message, media_files=None):
-    """Send via TrueConf — reuses running adapter when available."""
-    import os, logging
-    _logger = logging.getLogger(__name__)
+    """Send via TrueConf using the adapter's WebSocket send pipeline."""
     try:
-        from gateway.platforms.trueconf import get_active_adapter, TrueConfAdapter, check_trueconf_requirements
+        from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
+        if not check_trueconf_requirements():
+            return {"error": "TrueConf requirements not met. Need python-trueconf-bot."}
     except ImportError:
         return {"error": "TrueConf adapter not available."}
 
-    # Reuse the running gateway adapter (fast path — no new connection)
-    adapter = get_active_adapter()
-    if adapter is None:
-        return {"error": "TrueConf adapter is not running. Start the gateway with trueconf platform enabled."}
-
-    # Parse MEDIA: prefix — LLM sends files as message="MEDIA:/path/to/file"
-    _media_paths = list(media_files) if media_files else []
-    _text = message or ""
-    if _text.strip().upper().startswith("MEDIA:"):
-        _path = _text.strip()[len("MEDIA:"):].strip()
-        if _path:
-            _media_paths.append(_path)
-            _text = ""  # Don't send "MEDIA:..." as text
-
     try:
-        # Send text (only if not a MEDIA: message)
-        if _text and _text.strip():
-            result = await adapter.send(chat_id, _text)
+        from gateway.config import PlatformConfig
+        pconfig = PlatformConfig(extra=extra)
+        adapter = TrueConfAdapter(pconfig)
+        connected = await adapter.connect()
+        if not connected:
+            return _error(f"TrueConf: failed to connect - {adapter.fatal_error_message or 'unknown error'}")
+        try:
+            result = await adapter.send(chat_id, message)
             if not result.success:
-                return {"error": f"TrueConf send failed: {result.error}"}
+                return _error(f"TrueConf send failed: {result.error}")
 
-        # Send media files
-        if _media_paths:
-            for media_path in _media_paths:
-                try:
-                    ext = os.path.splitext(media_path)[1].lower()
-                    _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
-                    if ext in _IMAGE_EXTS:
-                        await adapter.send_image_file(chat_id, media_path)
-                    else:
-                        await adapter.send_document(chat_id, media_path)
-                except Exception as e:
-                    _logger.error("[TrueConf] Failed to send media %s: %s", media_path, e)
-                    return {"error": f"TrueConf media send failed: {e}"}
+            # Send media files if any
+            if media_files:
+                for media_item in media_files:
+                    try:
+                        import os
+                        if isinstance(media_item, tuple):
+                            media_path = media_item[0]
+                        else:
+                            media_path = media_item
+                        ext = os.path.splitext(media_path)[1].lower()
+                        _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+                        if ext in _IMAGE_EXTS:
+                            await adapter.send_image_file(chat_id, media_path)
+                        else:
+                            await adapter.send_document(chat_id, media_path)
+                    except Exception as e:
+                        logger.error("[TrueConf] Failed to send media %s: %s", media_path, e)
 
-        return {"success": True, "platform": "trueconf", "chat_id": chat_id}
+            return {"success": True, "platform": "trueconf", "chat_id": chat_id, "message_id": result.message_id}
+        finally:
+            await adapter.disconnect()
     except Exception as e:
-        return {"error": f"TrueConf send failed: {e}"}
+        return _error(f"TrueConf send failed: {e}")
+
 
 '''
+
 content = content.replace(marker, func + marker, 1)
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
 PYEOF
-    log_ok "_send_trueconf function added"
-    PATCHED=$((PATCHED + 1))
-fi
+        log_ok "_send_trueconf function added"
+        SEND_PATCHED=$((SEND_PATCHED + 1))
+    fi
 
-# 4c. TrueConf media handler in _send_to_platform
-if grep -q "platform == Platform.TRUECONF" "$SEND_PY" 2>/dev/null && grep -q "_send_trueconf(pconfig" "$SEND_PY" 2>/dev/null; then
-    log_skip "TrueConf media handler in _send_to_platform"
-else
-    log_patch "Adding TrueConf media handler to _send_to_platform..."
-    python3 - "$SEND_PY" << 'PYEOF'
+    # TrueConf in non-media routing
+    if grep -q 'Platform.TRUECONF' "$SEND_PY" 2>/dev/null; then
+        log_skip "TrueConf in send_message routing"
+    else
+        log_patch "Adding TrueConf to send_message routing..."
+        sed -i '/Platform.QQBOT:.*_send_qqbot/a\        elif platform == Platform.TRUECONF:\n            result = await _send_trueconf(pconfig.extra, chat_id, chunk)' "$SEND_PY"
+        log_ok "TrueConf added to send_message routing"
+        SEND_PATCHED=$((SEND_PATCHED + 1))
+    fi
+
+    # TrueConf media handling block
+    if grep -q 'TrueConf.*special handling.*media' "$SEND_PY" 2>/dev/null; then
+        log_skip "TrueConf media handling block"
+    else
+        log_patch "Adding TrueConf media handling block..."
+        python3 - "$SEND_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
 
-# 1. Add TrueConf handler before "# --- Non-media platforms ---"
-old_marker = "    # --- Non-media platforms ---"
-trueconf_block = """\
-    elif platform == Platform.TRUECONF:
-        return await _send_trueconf(pconfig.extra, chat_id, message or "", media_files=media_files)
-"""
-if old_marker in content:
-    # Only add if not already present in _send_to_platform section
-    parts = content.split(old_marker)
-    if len(parts) >= 2 and "platform == Platform.TRUECONF" not in parts[0].rsplit("def _send_to_platform", 1)[-1]:
-        content = parts[0] + trueconf_block + old_marker + parts[1]
+if 'TrueConf.*special handling.*media' in content or '# --- TrueConf: special handling for media' in content:
+    sys.exit(0)
 
-# 2. Update error message to include trueconf
-old_error = '"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu; "'
-new_error = '"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf; "'
-content = content.replace(old_error, new_error)
+marker = '    # --- Non-media platforms ---'
+block = '''    # --- TrueConf: special handling for media attachments ---
+    if platform == Platform.TRUECONF and media_files:
+        last_result = None
+        for i, chunk in enumerate(chunks):
+            is_last = (i == len(chunks) - 1)
+            result = await _send_trueconf(
+                pconfig.extra,
+                chat_id,
+                chunk,
+                media_files=media_files if is_last else [],
+            )
+            if isinstance(result, dict) and result.get("error"):
+                return result
+            last_result = result
+        return last_result
 
-# 3. Update warning message to include trueconf
-old_warning = '"native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu"'
-new_warning = '"native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf"'
-content = content.replace(old_warning, new_warning)
+'''
 
+content = content.replace(marker, block + marker, 1)
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
 PYEOF
-    if [ $? -eq 0 ]; then
-        log_ok "TrueConf media handler added"
-        PATCHED=$((PATCHED + 1))
-    else
-        echo "  ⚠️ Warning: Failed to add TrueConf media handler"
+        log_ok "TrueConf media handling block added"
+        SEND_PATCHED=$((SEND_PATCHED + 1))
     fi
-fi
 
-# 4d. _PLATFORM_CONNECTED_CHECKERS — TrueConf entry
-if grep -q '_PLATFORM_CONNECTED_CHECKERS' "$CONFIG_PY" 2>/dev/null && grep -q 'Platform.TRUECONF' "$CONFIG_PY" 2>/dev/null && grep -A1 '_PLATFORM_CONNECTED_CHECKERS' "$CONFIG_PY" | grep -q 'TRUECONF'; then
-    log_skip "_PLATFORM_CONNECTED_CHECKERS TrueConf entry"
-else
-    # Check if _PLATFORM_CONNECTED_CHECKERS exists in config.py
-    if grep -q '_PLATFORM_CONNECTED_CHECKERS' "$CONFIG_PY" 2>/dev/null; then
-        log_patch "Adding TrueConf to _PLATFORM_CONNECTED_CHECKERS..."
-        python3 - "$CONFIG_PY" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
-
-# Find the dictionary and add TrueConf entry
-# Pattern: look for the closing } of _PLATFORM_CONNECTED_CHECKERS and insert before it
-import re
-# Find last entry before closing brace in _PLATFORM_CONNECTED_CHECKERS
-pattern = r'(_PLATFORM_CONNECTED_CHECKERS\s*=\s*\{[^}]*)(Platform\.\w+:\s*lambda[^,}]+,?\s*\n)'
-matches = list(re.finditer(pattern, content, re.DOTALL))
-if matches:
-    last_match = matches[-1]
-    insert_pos = last_match.end()
-    trueconf_entry = '    Platform.TRUECONF: lambda cfg: bool(cfg.extra.get("server") and (cfg.token or (cfg.extra.get("username") and cfg.extra.get("password")))),\n'
-    content = content[:insert_pos] + trueconf_entry + content[insert_pos:]
-    with open(path, 'w') as f:
-        f.write(content)
-    print("OK")
-else:
-    print("SKIP: Could not find _PLATFORM_CONNECTED_CHECKERS dictionary")
-PYEOF
-        if [ $? -eq 0 ]; then
-            log_ok "_PLATFORM_CONNECTED_CHECKERS TrueConf entry added"
-            PATCHED=$((PATCHED + 1))
-        else
-            echo "  ⚠️ Warning: Failed to add _PLATFORM_CONNECTED_CHECKERS entry"
-        fi
-    else
-        log_skip "_PLATFORM_CONNECTED_CHECKERS not found in config.py (may not exist in this version)"
-    fi
+    PATCHED=$((PATCHED + SEND_PATCHED))
 fi
 
 # ───────────────────────────────────────────
-# 4e. SEND_MESSAGE_SCHEMA — add trueconf to target description
-# ───────────────────────────────────────────
-if grep -q "trueconf" "$SEND_PY" 2>/dev/null && grep -q "SEND_MESSAGE_SCHEMA" "$SEND_PY" 2>/dev/null && grep -A5 "SEND_MESSAGE_SCHEMA" "$SEND_PY" | grep -q "FILE SEND"; then
-    log_skip "TrueConf in SEND_MESSAGE_SCHEMA target description"
-else
-    log_patch "Adding TrueConf to SEND_MESSAGE_SCHEMA target description..."
-    python3 - "$SEND_PY" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
-
-old_desc = '"description": (\n        "Send a message to a connected messaging platform, or list available targets.\\n\\n"'
-new_desc = '''"description": (
-        "Send a message to a connected messaging platform, or list available targets.\\n\\n"
-        "FILE SEND: To send a file/image to the current chat, use target=\\"trueconf\\" (or the current platform name) and include MEDIA:<local_path> in the message parameter.\\n"
-        "Example: target=\\"trueconf\\", message=\\"MEDIA:/tmp/test_file.txt\\"\\n\\n"'''
-if old_desc in content and "FILE SEND" not in content:
-    content = content.replace(old_desc, new_desc, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print("OK")
-else:
-    print("SKIP")
-PYEOF
-    if [ $? -eq 0 ]; then
-        log_ok "TrueConf added to SEND_MESSAGE_SCHEMA"
-        PATCHED=$((PATCHED + 1))
-    fi
-fi
-
-# 4f. Debug logging + Non-media error — include trueconf
-if grep -q "logger.warning.*send_message_tool.*target=" "$SEND_PY" 2>/dev/null; then
-    log_skip "send_message debug logging"
-else
-    log_patch "Adding send_message debug logging..."
-    python3 - "$SEND_PY" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
-old = 'def _handle_send(args):\n    """Send a message to a platform target."""'
-new = '''def _handle_send(args):
-    """Send a message to a platform target."""
-    import logging as _dbg_log
-    _dbg_log.getLogger(__name__).warning("send_message_tool: target=%s message=%s", args.get("target"), (args.get("message") or "")[:200])'''
-if old in content:
-    content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print("OK")
-else:
-    print("SKIP")
-PYEOF
-    if [ $? -eq 0 ]; then
-        log_ok "Debug logging added"
-        PATCHED=$((PATCHED + 1))
-    fi
-fi
-if grep -q "yuanbao, feishu and trueconf" "$SEND_PY" 2>/dev/null || grep -q "yuanbao, feishu, trueconf" "$SEND_PY" 2>/dev/null; then
-    log_skip "Non-media error messages include trueconf"
-else
-    log_patch "Updating error/warning messages to include trueconf..."
-    python3 - "$SEND_PY" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
-# Add trueconf to any "supported for X, Y and Z" or "X, Y; " patterns in error messages
-import re
-# Pattern: "... yuanbao, feishu ..." or "... yuanbao and feishu ..."
-added = False
-for pat, repl in [
-    ('"native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu"',
-     '"native send_message media delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf"'),
-    ('"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and feishu; "',
-     '"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf; "'),
-    ('"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal and yuanbao; "',
-     '"send_message MEDIA delivery is currently only supported for telegram, discord, matrix, weixin, signal, yuanbao and trueconf; "'),
-]:
-    if pat in content:
-        content = content.replace(pat, repl)
-        added = True
-if added:
-    with open(path, 'w') as f:
-        f.write(content)
-    print("OK")
-else:
-    print("SKIP")
-PYEOF
-    if [ $? -eq 0 ]; then
-        log_ok "Error messages updated"
-        PATCHED=$((PATCHED + 1))
-    fi
-fi
-
-# ───────────────────────────────────────────
-# 5. Copy Adapter to gateway/platforms/
+# 4. Copy adapter to gateway/platforms/
 # ───────────────────────────────────────────
 ADAPTER_SRC="${ADAPTER_DIR}/gateway/platforms/trueconf.py"
 ADAPTER_DST="${HERMES_DIR}/gateway/platforms/trueconf.py"
 
 if [ -f "$ADAPTER_SRC" ]; then
-    if [ -f "$ADAPTER_DST" ] && diff -q "$ADAPTER_SRC" "$ADAPTER_DST" >/dev/null 2>&1; then
-        log_skip "TrueConf adapter (already up to date)"
+    if diff -q "$ADAPTER_SRC" "$ADAPTER_DST" >/dev/null 2>&1; then
+        log_skip "trueconf.py in gateway/platforms/"
     else
-        log_patch "Copying TrueConf adapter..."
+        log_patch "Copying trueconf.py to gateway/platforms/..."
         cp "$ADAPTER_SRC" "$ADAPTER_DST"
-        log_ok "TrueConf adapter copied"
+        log_ok "trueconf.py copied"
         PATCHED=$((PATCHED + 1))
     fi
-else
-    echo "  ⚠️ Warning: adapter source not found: $ADAPTER_SRC"
 fi
 
 # ───────────────────────────────────────────
-# 6. Patch installed library — None-guard only (non-destructive)
+# 5. Patch python-trueconf-bot library
 # ───────────────────────────────────────────
 BOT_PY="${SITE_PACKAGES}/trueconf/client/bot.py"
+PARSER_PY="${SITE_PACKAGES}/trueconf/types/parser.py"
 
-if [ -f "$BOT_PY" ]; then
-    if grep -q "current_version is None" "$BOT_PY" 2>/dev/null; then
-        log_skip "bot.py None-guard (already present)"
+if [ -f "$BOT_PY" ] && [ -f "${ADAPTER_DIR}/lib_patches/bot.py" ]; then
+    # Check if bot.py needs full replacement (missing download_file_by_id)
+    if grep -q "download_file_by_id" "$BOT_PY" 2>/dev/null; then
+        log_skip "bot.py lib patch (download_file_by_id)"
     else
-        log_patch "Adding None-guard to check_version..."
+        log_patch "Patching bot.py (adding download_file_by_id)..."
+        cp "${ADAPTER_DIR}/lib_patches/bot.py" "$BOT_PY"
+        log_ok "bot.py patched"
+        PATCHED=$((PATCHED + 1))
+    fi
+
+    # Check if check_version has None-guard (prevents crash when server version is unknown)
+    if grep -q "current_version is None" "$BOT_PY" 2>/dev/null; then
+        log_skip "bot.py check_version None-guard"
+    else
+        log_patch "Patching bot.py check_version (None-guard)..."
         python3 - "$BOT_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
@@ -643,31 +620,35 @@ with open(path, 'r') as f:
 if 'current_version is None' in content:
     sys.exit(0)
 
-old = '    current_version = await self.server_version\n'
-guard = '    current_version = await self.server_version\n        if current_version is None:\n            loggers.chatbot.warning("\u26a0\ufe0f Could not determine server version, skipping version check")\n            return\n    '
+old = '        _VersionChecker.check(current_version)'
+new = '''        if current_version is None:
+            loggers.chatbot.warning("⚠️ Could not determine server version, skipping version check")
+            return
+        _VersionChecker.check(current_version)'''
 
-if old not in content:
-    print("FAIL: marker not found")
-    sys.exit(1)
-
-content = content.replace(old, guard, 1)
+content = content.replace(old, new, 1)
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
 PYEOF
-        if [ $? -eq 0 ]; then
-            log_ok "bot.py None-guard added"
-            PATCHED=$((PATCHED + 1))
-        else
-            echo "  ⚠️ Warning: Failed to add None-guard (non-critical)"
-        fi
+        log_ok "bot.py check_version None-guard added"
+        PATCHED=$((PATCHED + 1))
     fi
-else
-    log_skip "bot.py not found: $BOT_PY"
+fi
+
+if [ -f "$PARSER_PY" ] && [ -f "${ADAPTER_DIR}/lib_patches/parser.py" ]; then
+    if diff -q "${ADAPTER_DIR}/lib_patches/parser.py" "$PARSER_PY" >/dev/null 2>&1; then
+        log_skip "parser.py lib patch"
+    else
+        log_patch "Patching parser.py..."
+        cp "${ADAPTER_DIR}/lib_patches/parser.py" "$PARSER_PY"
+        log_ok "parser.py patched"
+        PATCHED=$((PATCHED + 1))
+    fi
 fi
 
 # ───────────────────────────────────────────
-# 7. config.yaml — platform_toolsets for TrueConf
+# 6. config.yaml — platform_toolsets for TrueConf
 # ───────────────────────────────────────────
 CONFIG_YAML="${HOME}/.hermes/config.yaml"
 
@@ -676,8 +657,9 @@ if [ -f "$CONFIG_YAML" ]; then
         log_skip "platform_toolsets for TrueConf in config.yaml"
     else
         log_patch "Adding TrueConf toolsets to config.yaml..."
+        # Insert trueconf section after qqbot in platform_toolsets
         python3 - "$CONFIG_YAML" << 'PYEOF'
-import sys, re
+import sys
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
@@ -685,7 +667,51 @@ with open(path, 'r') as f:
 if '\n  trueconf:' in content or content.endswith('trueconf:'):
     sys.exit(0)
 
-trueconf_section = '''  trueconf:
+# Find qqbot section and insert after it
+marker = '  qqbot:\n  - hermes-qqbot'
+if marker not in content:
+    # Try finding the signal section instead
+    marker = '  signal:\n  - hermes-signal'
+
+if marker in content:
+    trueconf_section = '''  qqbot:
+  - hermes-qqbot
+  trueconf:
+  - browser
+  - clarify
+  - code_execution
+  - cronjob
+  - delegation
+  - file
+  - image_gen
+  - memory
+  - messaging
+  - session_search
+  - skills
+  - terminal
+  - todo
+  - tts
+  - vision
+  - web'''
+    content = content.replace(marker, trueconf_section)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    # Fallback: append at end of platform_toolsets section
+    # Find the end of platform_toolsets by looking for the next top-level key
+    lines = content.split('\n')
+    in_toolsets = False
+    insert_idx = None
+    for i, line in enumerate(lines):
+        if line.startswith('platform_toolsets:'):
+            in_toolsets = True
+        elif in_toolsets and line and not line.startswith(' ') and not line.startswith('#'):
+            insert_idx = i
+            break
+    
+    if insert_idx:
+        trueconf_section = '''  trueconf:
   - browser
   - clarify
   - code_execution
@@ -703,86 +729,29 @@ trueconf_section = '''  trueconf:
   - vision
   - web
 '''
-
-# Strategy 1: Find existing platform sections (two-space indented word: followed by
-# two-space indented dash + hermes-) and insert after the last match.
-# Pattern: lines like "  <platform>:" followed by "  - hermes-..."
-pattern = r'(^ {2}\w+:\n(?: {2}- hermes-.*\n)+)'
-matches = list(re.finditer(pattern, content, re.MULTILINE))
-if matches:
-    last = matches[-1]
-    insert_pos = last.end()
-    content = content[:insert_pos] + '\n' + trueconf_section + content[insert_pos:]
-else:
-    # Strategy 2: append to end of file
-    if not content.endswith('\n'):
-        content += '\n'
-    content += trueconf_section
-
-with open(path, 'w') as f:
-    f.write(content)
-print("OK")
+        lines.insert(insert_idx, trueconf_section.rstrip())
+        with open(path, 'w') as f:
+            f.write('\n'.join(lines))
+        print("OK")
+    else:
+        print("SKIP")
 PYEOF
         log_ok "TrueConf toolsets added to config.yaml"
         PATCHED=$((PATCHED + 1))
     fi
 else
-    echo "  ⚠️ Warning: config.yaml not found, skipping"
+    echo "  ⚠ config.yaml not found — skipping toolsets config"
+    echo "    After hermes setup, run: bash ${ADAPTER_DIR}/apply_patches.sh"
 fi
 
 # ───────────────────────────────────────────
-# 8. gateway/run.py — Home channel notice fix
-# ───────────────────────────────────────────
-RUN_PY="${HERMES_DIR}/gateway/run.py"
-
-if [ -f "$RUN_PY" ]; then
-    if grep -q "get_home_channel.*source.platform" "$RUN_PY" 2>/dev/null; then
-        log_skip "Home channel notice checks config"
-    else
-        log_patch "Patching home channel notice to check config..."
-        python3 - "$RUN_PY" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
-
-# The notice fires when os.getenv(env_key) is empty.
-# Patch: also check config.get_home_channel() so env-loaded + config-based
-# home channels both suppress the notice.
-old = '            if not os.getenv(env_key):'
-new = '''            # TrueConf patch: also check gateway config for home channel
-            _home_from_config = False
-            try:
-                from gateway.config import load_gateway_config
-                _cfg = load_gateway_config()
-                _hc = _cfg.get_home_channel(source.platform)
-                if _hc:
-                    _home_from_config = True
-            except Exception:
-                pass
-            if not os.getenv(env_key) and not _home_from_config:'''
-if old in content:
-    content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
-        f.write(content)
-    print("OK")
-else:
-    print("SKIP")
-PYEOF
-        if [ $? -eq 0 ]; then
-            log_ok "Home channel notice patched"
-            PATCHED=$((PATCHED + 1))
-        fi
-    fi
-fi
-
-# ───────────────────────────────────────────
-# Done
+# Summary
 # ───────────────────────────────────────────
 echo ""
-if [ $PATCHED -gt 0 ]; then
-    echo "✅ Patches applied: $PATCHED"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if [ "$PATCHED" -eq 0 ]; then
+    echo "  ✓ All patches already applied"
 else
-    echo "✅ All patches already applied"
+    echo "  ✓ Applied $PATCHED patch(es)"
 fi
-echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

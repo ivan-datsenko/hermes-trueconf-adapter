@@ -436,15 +436,12 @@ class TrueConfAdapter(BasePlatformAdapter):
 
             self._reconnect_count = 0
             self._mark_connected()
-            self._track_active()
             logger.info(
                 "[TrueConf] Connected to %s as bot", self._server,
             )
 
             # Start WebSocket monitor — detects disconnects and auto-reconnects
-            # DISABLED: causes "blinking" — bot appears then disappears from network
-            # The library handles its own reconnection; monitor creates duplicate tasks
-            self._monitor_task = None  # was: asyncio.create_task(self._ws_monitor())
+            self._monitor_task = asyncio.create_task(self._ws_monitor())
 
             return True
 
@@ -488,7 +485,6 @@ class TrueConfAdapter(BasePlatformAdapter):
         self._bot = None
         self._dispatcher = None
         self._mark_disconnected()
-        self._untrack_active()
         logger.info("[TrueConf] Disconnected")
 
     # ------------------------------------------------------------------
@@ -1363,27 +1359,3 @@ class TrueConfAdapter(BasePlatformAdapter):
     def get_protection_stats(self) -> Dict[str, Any]:
         """Get anti-spam protection statistics."""
         return self._anti_spam.get_stats()
-
-    # ------------------------------------------------------------------
-    # Active instance tracking (for send_message tool)
-    # ------------------------------------------------------------------
-    _active_instance: Any = None
-
-    @classmethod
-    def get_active(cls) -> "Optional[TrueConfAdapter]":
-        """Return the currently running TrueConfAdapter instance, or None."""
-        return cls._active_instance
-
-    def _track_active(self) -> None:
-        """Set this instance as the active adapter."""
-        TrueConfAdapter._active_instance = self
-
-    def _untrack_active(self) -> None:
-        """Clear this instance if it's still the active one."""
-        if TrueConfAdapter._active_instance is self:
-            TrueConfAdapter._active_instance = None
-
-
-def get_active_adapter() -> "Optional[TrueConfAdapter]":
-    """Return the running TrueConf adapter (for send_message tool)."""
-    return TrueConfAdapter.get_active()
