@@ -441,7 +441,9 @@ class TrueConfAdapter(BasePlatformAdapter):
             )
 
             # Start WebSocket monitor — detects disconnects and auto-reconnects
-            self._monitor_task = asyncio.create_task(self._ws_monitor())
+            # DISABLED: causes "blinking" — bot appears then disappears from network
+            # The library handles its own reconnection; monitor creates duplicate tasks
+            self._monitor_task = None  # was: asyncio.create_task(self._ws_monitor())
 
             return True
 
@@ -1065,8 +1067,13 @@ class TrueConfAdapter(BasePlatformAdapter):
                 resp.raise_for_status()
                 image_data = resp.content
 
-            from trueconf.types import BufferedInputFile
-            file = BufferedInputFile(data=image_data, filename="image.jpg")
+            try:
+                from trueconf.types import BufferedInputFile
+            except ImportError:
+                from trueconf.types.input_file import BufferedInputFile
+
+            # python-trueconf-bot v1.2.0 uses 'file' and 'file_name'
+            file = BufferedInputFile(file=image_data, file_name="image.jpg")
 
             kwargs: Dict[str, Any] = {
                 "chat_id": chat_id,
@@ -1106,7 +1113,10 @@ class TrueConfAdapter(BasePlatformAdapter):
             return SendResult(success=False, error="Bot not connected")
 
         try:
-            from trueconf.types import FSInputFile
+            try:
+                from trueconf.types import FSInputFile
+            except ImportError:
+                from trueconf.types.input_file import FSInputFile
             file = FSInputFile(path=image_path)
 
             kwargs: Dict[str, Any] = {
@@ -1148,8 +1158,11 @@ class TrueConfAdapter(BasePlatformAdapter):
             return SendResult(success=False, error="Bot not connected")
 
         try:
-            from trueconf.types import FSInputFile
-            file = FSInputFile(path=file_path)
+            try:
+                from trueconf.types import FSInputFile
+            except ImportError:
+                from trueconf.types.input_file import FSInputFile
+            file = FSInputFile(path=file_path, file_name=file_name)
 
             kwargs: Dict[str, Any] = {
                 "chat_id": chat_id,
