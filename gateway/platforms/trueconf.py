@@ -26,7 +26,6 @@ Environment variables:
     TRUECONF_SERVER          Server hostname (e.g. video.example.net)
     TRUECONF_USERNAME        Bot username
     TRUECONF_PASSWORD        Bot password
-    TRUECONF_TOKEN           Bot token (alternative to username/password)
     TRUECONF_ALLOWED_USERS   Comma-separated user IDs allowed to use the bot
     TRUECONF_ALLOW_ALL_USERS Set to "true" to allow all users
     TRUECONF_HOME_CHANNEL    Default channel ID for cron delivery
@@ -285,11 +284,6 @@ class TrueConfAdapter(BasePlatformAdapter):
             config.extra.get("password", "")
             or os.getenv("TRUECONF_PASSWORD", "")
         ).strip()
-        self._token: str = (
-            config.token
-            or config.extra.get("token", "")
-            or os.getenv("TRUECONF_TOKEN", "")
-        ).strip()
 
         # Connection options
         self._port: int = int(config.extra.get("port", 443))
@@ -368,16 +362,7 @@ class TrueConfAdapter(BasePlatformAdapter):
 
         try:
             # Create bot instance
-            if self._token:
-                self._bot = Bot(
-                    server=self._server,
-                    token=self._token,
-                    web_port=self._port,
-                    https=self._use_ssl,
-                    verify_ssl=self._verify_ssl,
-                    receive_unread_messages=self._receive_unread,
-                )
-            elif self._username and self._password:
+            if self._username and self._password:
                 self._bot = Bot.from_credentials(
                     server=self._server,
                     username=self._username,
@@ -390,7 +375,7 @@ class TrueConfAdapter(BasePlatformAdapter):
             else:
                 logger.error(
                     "[TrueConf] No credentials configured. "
-                    "Set TRUECONF_TOKEN or TRUECONF_USERNAME + TRUECONF_PASSWORD"
+                    "Set TRUECONF_USERNAME and TRUECONF_PASSWORD"
                 )
                 return False
 

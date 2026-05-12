@@ -155,26 +155,12 @@ if [ "$SKIP_CONFIG" != "true" ]; then
     read -r -p "  Enter: " VERIFY_SSL_RAW
     [[ "$VERIFY_SSL_RAW" =~ ^[Nn]$ ]] && TRUECONF_VERIFY_SSL="false" || TRUECONF_VERIFY_SSL="true"
 
-    echo -e "\n  ${YELLOW}Authentication Method:${NC}"
-    echo "  1) Username and Password"
-    echo "  2) API Token"
-    read -r -p "  Choice [1-2]: " AUTH_CHOICE
-
-    if [ "$AUTH_CHOICE" == "2" ]; then
-        ask "Bot API Token:"
-        read -r -s -p "  Enter: " TRUECONF_TOKEN
-        echo ""
-        TRUECONF_USERNAME=""
-        TRUECONF_PASSWORD=""
-    else
-        ask "Bot login (e.g. bot_username):"
-        read -r -p "  Enter: " TRUECONF_USERNAME
-        [ -z "$TRUECONF_USERNAME" ] && die "Login cannot be empty"
-        ask "Bot password:"
-        read -r -s -p "  Enter: " TRUECONF_PASSWORD
-        echo ""
-        TRUECONF_TOKEN=""
-    fi
+    ask "Bot login (e.g. bot_username):"
+    read -r -p "  Enter: " TRUECONF_USERNAME
+    [ -z "$TRUECONF_USERNAME" ] && die "Login cannot be empty"
+    ask "Bot password:"
+    read -r -s -p "  Enter: " TRUECONF_PASSWORD
+    echo ""
 
     ask "Allow all users?" "[Y/n]"
     read -r -p "  Enter: " ALLOW_ALL
@@ -201,7 +187,6 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         echo "TRUECONF_SERVER=${TRUECONF_SERVER}"
         [ -n "$TRUECONF_USERNAME" ] && echo "TRUECONF_USERNAME=${TRUECONF_USERNAME}"
         [ -n "$TRUECONF_PASSWORD" ] && echo "TRUECONF_PASSWORD=${TRUECONF_PASSWORD}"
-        [ -n "$TRUECONF_TOKEN" ] && echo "TRUECONF_TOKEN=${TRUECONF_TOKEN}"
         echo "TRUECONF_USE_SSL=${TRUECONF_USE_SSL}"
         echo "TRUECONF_VERIFY_SSL=${TRUECONF_VERIFY_SSL}"
         echo "TRUECONF_ALLOW_ALL_USERS=${TRUECONF_ALLOW_ALL}"
