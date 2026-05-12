@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================
-# TrueConf Adapter v2.1.1 — Interactive Installer
+# TrueConf Adapter v2.2 — Interactive Installer
 # ============================================
 set -e
 
@@ -61,7 +61,7 @@ ask() {
 
 echo -e "${GREEN}"
 echo "╔═══════════════════════════════════════╗"
-echo "║   TrueConf Adapter v2.1.1 — Installer    ║"
+echo "║   TrueConf Adapter v2.2 — Installer     ║"
 echo "╚═══════════════════════════════════════╝"
 echo -e "${NC}"
 echo ""
@@ -90,10 +90,10 @@ fi
 echo "  Installing python-trueconf-bot..."
 $PYTHON -m pip install --force-reinstall "git+https://github.com/TrueConf/python-trueconf-bot.git#egg=python-trueconf-bot" 2>&1 || \
 $PYTHON -m pip install "git+https://github.com/TrueConf/python-trueconf-bot.git" 2>&1 || \
-die "Failed to install bot library. Please ensure 'pip' is installed in the venv: $VENV_DIR"
+die "Failed to install bot library."
 
-echo "  Installing httpx==0.28.1..."
-$PYTHON -m pip install "httpx==0.28.1" 2>&1 || die "Failed to install httpx"
+echo "  Installing httpx..."
+$PYTHON -m pip install "httpx" 2>&1 || die "Failed to install httpx"
 
 echo -e "${GREEN}✅${NC} Dependencies installed"
 echo ""
@@ -138,21 +138,43 @@ if [ "$SKIP_CONFIG" != "true" ]; then
     read -r -p "  Enter: " TRUECONF_SERVER
     [ -z "$TRUECONF_SERVER" ] && die "Server cannot be empty"
 
-    ask "Bot login (e.g. bot_username):"
-    read -r -p "  Enter: " TRUECONF_USERNAME
-    [ -z "$TRUECONF_USERNAME" ] && die "Login cannot be empty"
-
-    ask "Bot password:"
-    read -r -s -p "  Enter: " TRUECONF_PASSWORD
-    echo ""
-
-    ask "Use SSL/HTTPS?" "[Y/n]"
+    # SSL Auto-detect: internal IPs default to no SSL, domains default to SSL
+    if [[ "$TRUECONF_SERVER" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|localhost|127\.) ]]; then
+        SSL_DEFAULT="n"
+        SSL_PROMPT="y/N"
+    else
+        SSL_DEFAULT="y"
+        SSL_PROMPT="Y/n"
+    fi
+    ask "Use SSL/HTTPS?" "[$SSL_PROMPT]"
     read -r -p "  Enter: " USE_SSL_RAW
+    [ -z "$USE_SSL_RAW" ] && USE_SSL_RAW="$SSL_DEFAULT"
     [[ "$USE_SSL_RAW" =~ ^[Nn]$ ]] && TRUECONF_USE_SSL="false" || TRUECONF_USE_SSL="true"
 
     ask "Verify SSL certificate? (Set 'n' for self-signed)" "[Y/n]"
     read -r -p "  Enter: " VERIFY_SSL_RAW
     [[ "$VERIFY_SSL_RAW" =~ ^[Nn]$ ]] && TRUECONF_VERIFY_SSL="false" || TRUECONF_VERIFY_SSL="true"
+
+    echo -e "\n  ${YELLOW}Authentication Method:${NC}"
+    echo "  1) Username and Password"
+    echo "  2) API Token"
+    read -r -p "  Choice [1-2]: " AUTH_CHOICE
+
+    if [ "$AUTH_CHOICE" == "2" ]; then
+        ask "Bot API Token:"
+        read -r -s -p "  Enter: " TRUECONF_TOKEN
+        echo ""
+        TRUECONF_USERNAME=""
+        TRUECONF_PASSWORD=""
+    else
+        ask "Bot login (e.g. bot_username):"
+        read -r -p "  Enter: " TRUECONF_USERNAME
+        [ -z "$TRUECONF_USERNAME" ] && die "Login cannot be empty"
+        ask "Bot password:"
+        read -r -s -p "  Enter: " TRUECONF_PASSWORD
+        echo ""
+        TRUECONF_TOKEN=""
+    fi
 
     ask "Allow all users?" "[Y/n]"
     read -r -p "  Enter: " ALLOW_ALL
@@ -165,7 +187,7 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         ALLOWED_USERS=""
     fi
 
-    ask "Default Home Channel ID (optional, avoids /sethome prompt):"
+    ask "Default Home Channel ID (optional):"
     read -r -p "  Enter: " HOME_CHANNEL
 
     # Save to .env
@@ -177,13 +199,14 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         echo ""
         echo "# TrueConf Adapter"
         echo "TRUECONF_SERVER=${TRUECONF_SERVER}"
-        echo "TRUECONF_USERNAME=${TRUECONF_USERNAME}"
-        echo "TRUECONF_PASSWORD=${TRUECONF_PASSWORD}"
+        [ -n "$TRUECONF_USERNAME" ] && echo "TRUECONF_USERNAME=${TRUECONF_USERNAME}"
+        [ -n "$TRUECONF_PASSWORD" ] && echo "TRUECONF_PASSWORD=${TRUECONF_PASSWORD}"
+        [ -n "$TRUECONF_TOKEN" ] && echo "TRUECONF_TOKEN=${TRUECONF_TOKEN}"
         echo "TRUECONF_USE_SSL=${TRUECONF_USE_SSL}"
         echo "TRUECONF_VERIFY_SSL=${TRUECONF_VERIFY_SSL}"
         echo "TRUECONF_ALLOW_ALL_USERS=${TRUECONF_ALLOW_ALL}"
         echo "TRUECONF_ALLOWED_USERS=${ALLOWED_USERS}"
-        echo "TRUECONF_HOME_CHANNEL=${HOME_CHANNEL}"
+        [ -n "$HOME_CHANNEL" ] && echo "TRUECONF_HOME_CHANNEL=${HOME_CHANNEL}"
         echo "TRUECONF_HOME_CHANNEL_NAME=Home"
     } >> "$ENV_FILE"
     echo -e "${GREEN}✅${NC} Settings saved"

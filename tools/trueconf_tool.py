@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 async def _get_adapter():
     """Get the active TrueConf adapter from the gateway."""
     try:
-        from gateway.run import gateway
-        if gateway and hasattr(gateway, "adapter_registry") and gateway.adapter_registry:
-            adapter = gateway.adapter_registry.get(Platform.TRUECONF)
+        from gateway.run import _gateway_runner_ref
+        runner = _gateway_runner_ref()
+        if runner and hasattr(runner, "adapters"):
+            adapter = runner.adapters.get(Platform.TRUECONF)
             if adapter:
                 return adapter
     except (ImportError, AttributeError):
