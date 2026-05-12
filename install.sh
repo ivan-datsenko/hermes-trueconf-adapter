@@ -1,17 +1,42 @@
 #!/bin/bash
 # ============================================
-# TrueConf Adapter v1.0.0 — Interactive Installer
+# TrueConf Adapter v2.2 — Interactive Installer
 # ============================================
-# Одна команда — и всё работает!
-# Usage: bash install.sh
-# ============================================
-
 set -e
 
-HERMES_DIR="${HERMES_DIR:-/root/.hermes/hermes-agent}"
+# ── Auto-detect HERMES_DIR ──────────────────
+if [ -z "$HERMES_DIR" ]; then
+    for dir in "$HOME/.hermes/hermes-agent" "/root/.hermes/hermes-agent" "/opt/hermes-agent"; do
+        if [ -d "$dir/gateway" ]; then
+            HERMES_DIR="$dir"
+            break
+        fi
+    done
+    if [ -z "$HERMES_DIR" ] && command -v hermes >/dev/null 2>&1; then
+        HERMES_BIN=$(command -v hermes)
+        while [ -L "$HERMES_BIN" ]; do HERMES_BIN=$(readlink -f "$HERMES_BIN"); done
+        TMP_DIR=$(dirname "$HERMES_BIN")
+        for _ in 1 2 3 4; do
+            if [ -d "$TMP_DIR/gateway" ]; then
+                HERMES_DIR="$TMP_DIR"
+                break 2
+            fi
+            TMP_DIR=$(dirname "$TMP_DIR")
+        done
+    fi
+    if [ -z "$HERMES_DIR" ]; then
+        echo -e "\033[0;31m❌ Hermes Agent not found.\033[0m"
+        echo "   Set HERMES_DIR=/path/to/hermes-agent bash install.sh"
+        return 1 2>/dev/null || exit 1
+    fi
+fi
+
 VENV_DIR="${HERMES_DIR}/venv"
+PYTHON="${VENV_DIR}/bin/python"
+PIP="${VENV_DIR}/bin/pip"
 ADAPTER_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${HOME}/.hermes/.env"
+PLUGINS_DIR="${HOME}/.hermes/plugins/trueconf-adapter"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -19,7 +44,11 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# Функция для вопросов
+die() {
+    echo -e "${RED}❌ $1${NC}" >&2
+    return 1 2>/dev/null || exit 1
+}
+
 ask() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -ne "${YELLOW}$1${NC}"
@@ -31,294 +60,143 @@ ask() {
 }
 
 echo -e "${GREEN}"
-echo "╔═══════════════════════════════════════════╗"
-echo "║   TrueConf Adapter v1.0.0 — Installer    ║"
-echo "╚═══════════════════════════════════════════╝"
+echo "╔═══════════════════════════════════════╗"
+echo "║   TrueConf Adapter v2.2 — Installer     ║"
+echo "╚═══════════════════════════════════════╝"
 echo -e "${NC}"
 echo ""
 
-# ═══════════════════════════════════════════
-# 1. Проверка Hermes Agent
-# ═══════════════════════════════════════════
-echo -e "${YELLOW}⏳ Проверяю Hermes Agent...${NC}"
-
+# ── 1. Check Hermes Agent ──────────────────────
+echo -e "${YELLOW}⏳ Checking Hermes Agent...${NC}"
 if [ ! -d "$HERMES_DIR" ]; then
-    echo -e "${RED}❌ Hermes Agent не найден: $HERMES_DIR${NC}"
-    exit 1
+    die "Hermes Agent not found: $HERMES_DIR"
 fi
-
 if [ ! -d "$VENV_DIR" ]; then
-    echo -e "${RED}❌ Python venv не найден${NC}"
-    exit 1
+    die "Python venv not found: $VENV_DIR\n\n  Run 'hermes setup' to create venv."
 fi
-
-echo -e "${GREEN}✅${NC} Hermes Agent найден"
-
-# Используем полные пути к venv — source activate ненадёжна в неинтерактивном bash
-PYTHON="$VENV_DIR/bin/python"
-if [ ! -x "$PYTHON" ]; then
-    PYTHON="$VENV_DIR/bin/python3"
-fi
-
-if [ ! -x "$PYTHON" ]; then
-    echo -e "${RED}❌ Python не найден в venv: $VENV_DIR/bin/python[3]${NC}"
-    exit 1
-fi
-
-# Ищем pip — может быть pip или pip3
-PIP=""
-if [ -x "$VENV_DIR/bin/pip" ]; then
-    PIP="$VENV_DIR/bin/pip"
-elif [ -x "$VENV_DIR/bin/pip3" ]; then
-    PIP="$VENV_DIR/bin/pip3"
-fi
-
-# Если pip нет — бутстрапим через python -m pip
-if [ -z "$PIP" ]; then
-    echo -e "${YELLOW}⏳ pip не найден в venv, устанавливаю...${NC}"
-    if "$PYTHON" -m ensurepip --upgrade 2>&1; then
-        echo -e "${GREEN}✅${NC} pip установлен через ensurepip"
-    elif "$PYTHON" -m ensurepip 2>&1; then
-        echo -e "${GREEN}✅${NC} pip установлен через ensurepip"
-    else
-        echo -e "${RED}❌ Не удалось установить pip в venv${NC}"
-        echo -e "${YELLOW}Попробуйте:${NC}"
-        echo "  $PYTHON -m ensurepip --upgrade"
-        exit 1
-    fi
-    # Перепроверяем
-    if [ -x "$VENV_DIR/bin/pip" ]; then
-        PIP="$VENV_DIR/bin/pip"
-    elif [ -x "$VENV_DIR/bin/pip3" ]; then
-        PIP="$VENV_DIR/bin/pip3"
-    else
-        PIP="$PYTHON -m pip"
-    fi
-fi
-
-echo -e "${GREEN}✅${NC} Python: $PYTHON"
-echo -e "${GREEN}✅${NC} Pip: $PIP"
+echo -e "${GREEN}✅${NC} Hermes Agent: $HERMES_DIR"
 echo ""
 
-# ═══════════════════════════════════════════
-# 2. Установка библиотеки
-# ═══════════════════════════════════════════
-echo -e "${YELLOW}⏳ Устанавливаю python-trueconf-bot...${NC}"
-INSTALL_OK=false
-if "$PYTHON" -m pip install --pre "python-trueconf-bot==1.2.0" 2>&1; then
-    INSTALL_OK=true
-elif "$PYTHON" -m pip install "python-trueconf-bot>=1.2.0" 2>&1; then
-    INSTALL_OK=true
+# ── 2. Install dependencies ────────────────────
+echo -e "${YELLOW}⏳ Installing dependencies...${NC}"
+
+# Ensure pip is available
+if ! $PYTHON -m pip --version >/dev/null 2>&1; then
+    echo "  pip not found in venv, attempting to install via ensurepip..."
+    $PYTHON -m ensurepip --upgrade 2>&1 || echo "  Warning: ensurepip failed, continuing anyway..."
 fi
 
-if [ "$INSTALL_OK" = "false" ]; then
-    echo -e "${RED}❌ python-trueconf-bot не установился. Ошибки выше.${NC}"
-    exit 1
-fi
+# Try to install bot library
+echo "  Installing python-trueconf-bot..."
+$PYTHON -m pip install --force-reinstall "git+https://github.com/TrueConf/python-trueconf-bot.git#egg=python-trueconf-bot" 2>&1 || \
+$PYTHON -m pip install "git+https://github.com/TrueConf/python-trueconf-bot.git" 2>&1 || \
+die "Failed to install bot library."
 
-# Fix httpx dependency conflict (bot pulls httpx 1.0.dev3 which breaks AsyncClient)
-echo -e "${YELLOW}⏳ Фиксирую httpx...${NC}"
-"$PYTHON" -m pip install "httpx>=0.27,<0.29" 2>&1 || echo -e "${YELLOW}⚠ httpx fix не применён — возможны ошибки импорта${NC}"
+echo "  Installing httpx..."
+$PYTHON -m pip install "httpx" 2>&1 || die "Failed to install httpx"
 
-# Verify import
-if "$PYTHON" -c "from trueconf import Bot; print('OK')" 2>&1; then
-    echo -e "${GREEN}✅${NC} Библиотека установлена и проверена"
-else
-    echo -e "${RED}❌${NC} Ошибка импорта trueconf.Bot"
-    echo -e "${YELLOW}Попробуйте вручную:${NC}"
-    echo "  $PYTHON -m pip install --pre \"python-trueconf-bot==1.2.0\""
-    echo "  $PYTHON -m pip install \"httpx>=0.27,<0.29\""
-    exit 1
-fi
+echo -e "${GREEN}✅${NC} Dependencies installed"
 echo ""
 
-# ═══════════════════════════════════════════
-# 3. Применение патчей (единый скрипт)
-# ═══════════════════════════════════════════
-echo -e "${YELLOW}⏳ Применяю патчи к Hermes Agent...${NC}"
-bash "${ADAPTER_DIR}/apply_patches.sh" "$HERMES_DIR"
+# ── 3. Copy adapter and tools ──────────────────
+echo -e "${YELLOW}⏳ Copying files...${NC}"
+mkdir -p "$PLUGINS_DIR/gateway/platforms"
+mkdir -p "$PLUGINS_DIR/lib_patches"
+mkdir -p "$PLUGINS_DIR/tools"
+cp "${ADAPTER_DIR}/gateway/platforms/trueconf.py" "${PLUGINS_DIR}/gateway/platforms/trueconf.py"
+cp "${ADAPTER_DIR}/gateway/platforms/__init__.py" "${PLUGINS_DIR}/gateway/platforms/__init__.py"
+cp "${ADAPTER_DIR}/tools/trueconf_tool.py" "${PLUGINS_DIR}/tools/trueconf_tool.py"
+cp "${ADAPTER_DIR}/apply_patches.sh" "${PLUGINS_DIR}/apply_patches.sh"
+chmod +x "${PLUGINS_DIR}/apply_patches.sh"
+if [ -d "${ADAPTER_DIR}/lib_patches" ]; then
+    cp "${ADAPTER_DIR}/lib_patches/"*.py "${PLUGINS_DIR}/lib_patches/" 2>/dev/null || true
+fi
+echo -e "${GREEN}✅${NC} Files copied"
 echo ""
 
-# ═══════════════════════════════════════════
-# 4. Git hooks (автовосстановление после update)
-# ═══════════════════════════════════════════
-echo -e "${YELLOW}⏳ Устанавливаю git hooks...${NC}"
-GIT_HOOKS_DIR="${HERMES_DIR}/.git/hooks"
-
-if [ -d "$GIT_HOOKS_DIR" ]; then
-    # post-merge — срабатывает после git pull/merge
-    cat > "${GIT_HOOKS_DIR}/post-merge" << HOOK
-#!/bin/bash
-# TrueConf Adapter — auto-reapply patches after hermes update
-if [ -f "${ADAPTER_DIR}/apply_patches.sh" ]; then
-    echo "[TrueConf] Re-applying patches after update..."
-    bash "${ADAPTER_DIR}/apply_patches.sh" 2>&1 | sed 's/^/  /'
-fi
-HOOK
-    chmod +x "${GIT_HOOKS_DIR}/post-merge"
-
-    # post-checkout — срабатывает при смене ветки
-    cat > "${GIT_HOOKS_DIR}/post-checkout" << HOOK
-#!/bin/bash
-# TrueConf Adapter — auto-reapply patches after branch switch
-if [ -f "${ADAPTER_DIR}/apply_patches.sh" ]; then
-    echo "[TrueConf] Re-applying patches after checkout..."
-    bash "${ADAPTER_DIR}/apply_patches.sh" 2>&1 | sed 's/^/  /'
-fi
-HOOK
-    chmod +x "${GIT_HOOKS_DIR}/post-checkout"
-
-    echo -e "${GREEN}✅${NC} Git hooks установлены (post-merge, post-checkout)"
-else
-    echo -e "${YELLOW}⚠${NC} Git hooks не установлены (не git-репозиторий)"
-fi
+# ── 4. Apply patches ───────────────────────────
+echo -e "${YELLOW}⏳ Applying patches...${NC}"
+bash "${PLUGINS_DIR}/apply_patches.sh" "$HERMES_DIR"
 echo ""
 
-# ═══════════════════════════════════════════
-# 5. Systemd drop-in (ExecStartPre)
-# ═══════════════════════════════════════════
-echo -e "${YELLOW}⏳ Настраиваю systemd service...${NC}"
-DROPIN_DIR="${HOME}/.config/systemd/user/hermes-gateway.service.d"
-
-if [ -d "${HOME}/.config/systemd/user" ]; then
-    mkdir -p "$DROPIN_DIR"
-    cat > "${DROPIN_DIR}/trueconf-patches.conf" << DROPIN
-[Service]
-ExecStartPre=
-ExecStartPre=/bin/bash ${ADAPTER_DIR}/apply_patches.sh
-DROPIN
-    systemctl --user daemon-reload 2>/dev/null || true
-    echo -e "${GREEN}✅${NC} Systemd drop-in установлен"
-else
-    echo -e "${YELLOW}⚠${NC} Systemd user dir не найден, пропускаю"
-fi
-echo ""
-
-# ═══════════════════════════════════════════
-# 6. Интерактивный ввод настроек
-# ═══════════════════════════════════════════
+# ── 5. Configure TrueConf ──────────────────────
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}🎯 Настройка подключения к TrueConf${NC}"
+echo -e "${GREEN}🎯 Configuration${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
 
-# Проверяем, есть ли уже настройки
+SKIP_CONFIG=false
 if grep -q "^TRUECONF_SERVER=" "$ENV_FILE" 2>/dev/null; then
-    echo -e "${GREEN}✅${NC} Настройки TrueConf уже есть в .env"
-    ask "Перезаписать?" "[y/N]"
-    read -p "  Введите: " -e -i "n" OVERWRITE
+    ask "TrueConf settings found in .env. Overwrite?" "[y/N]"
+    read -r -p "  Enter: " OVERWRITE
     if [[ ! "$OVERWRITE" =~ ^[Yy]$ ]]; then
-        echo ""
-        echo -e "${GREEN}✅${NC} Настройки сохранены"
         SKIP_CONFIG=true
     fi
 fi
 
 if [ "$SKIP_CONFIG" != "true" ]; then
-    # Сервер
-    ask "Адрес сервера TrueConf:"
-    read -p "  Введите: " TRUECONF_SERVER
-    echo ""
+    ask "TrueConf server address (e.g. video.company.com):"
+    read -r -p "  Enter: " TRUECONF_SERVER
+    [ -z "$TRUECONF_SERVER" ] && die "Server cannot be empty"
 
-    # Логин
-    ask "Логин бота:"
-    read -p "  Введите: " TRUECONF_USERNAME
-    echo ""
-
-    # Пароль (без отображения)
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    ask "Пароль бота:"
-    read -s -p "  Введите: " TRUECONF_PASSWORD
-    echo ""
-    echo ""
-
-    # SSL
-    ask "Использовать SSL/HTTPS?" "[Y/n]"
-    read -p "  Введите: " -e -i "y" USE_SSL
-    USE_SSL="${USE_SSL:-y}"
-    echo ""
-
-    # ═══════════════════════════════════════════
-    # 7. Контроль доступа
-    # ═══════════════════════════════════════════
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}🔐 Контроль доступа${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    ask "Разрешить всем пользователям?" "[Y/n]"
-    read -p "  Введите: " -e -i "n" ALLOW_ALL
-
-    if [[ "$ALLOW_ALL" =~ ^[Nn]$ ]]; then
-        echo ""
-        ask "Список разрешённых пользователей (через запятую):"
-        read -p "  Введите: " -e -i "" ALLOWED_USERS
-        ALLOW_ALL_USERS="false"
+    # SSL Auto-detect: internal IPs default to no SSL, domains default to SSL
+    if [[ "$TRUECONF_SERVER" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|localhost|127\.) ]]; then
+        SSL_DEFAULT="n"
+        SSL_PROMPT="y/N"
     else
-        ALLOW_ALL_USERS="true"
+        SSL_DEFAULT="y"
+        SSL_PROMPT="Y/n"
+    fi
+    ask "Use SSL/HTTPS?" "[$SSL_PROMPT]"
+    read -r -p "  Enter: " USE_SSL_RAW
+    [ -z "$USE_SSL_RAW" ] && USE_SSL_RAW="$SSL_DEFAULT"
+    [[ "$USE_SSL_RAW" =~ ^[Nn]$ ]] && TRUECONF_USE_SSL="false" || TRUECONF_USE_SSL="true"
+
+    ask "Verify SSL certificate? (Set 'n' for self-signed)" "[Y/n]"
+    read -r -p "  Enter: " VERIFY_SSL_RAW
+    [[ "$VERIFY_SSL_RAW" =~ ^[Nn]$ ]] && TRUECONF_VERIFY_SSL="false" || TRUECONF_VERIFY_SSL="true"
+
+    ask "Bot login (e.g. bot_username):"
+    read -r -p "  Enter: " TRUECONF_USERNAME
+    [ -z "$TRUECONF_USERNAME" ] && die "Login cannot be empty"
+    ask "Bot password:"
+    read -r -s -p "  Enter: " TRUECONF_PASSWORD
+    echo ""
+
+    ask "Allow all users?" "[Y/n]"
+    read -r -p "  Enter: " ALLOW_ALL
+    if [[ "$ALLOW_ALL" =~ ^[Nn]$ ]]; then
+        ask "Allowed users (IDs comma-separated):"
+        read -r -p "  Enter: " ALLOWED_USERS
+        TRUECONF_ALLOW_ALL="false"
+    else
+        TRUECONF_ALLOW_ALL="true"
         ALLOWED_USERS=""
     fi
-    echo ""
 
-    # ═══════════════════════════════════════════
-    # 8. Запись в .env
-    # ═══════════════════════════════════════════
-    echo -e "${YELLOW}⏳ Сохраняю настройки...${NC}"
+    ask "Default Home Channel ID (optional):"
+    read -r -p "  Enter: " HOME_CHANNEL
 
-    # Создаём backup если .env существует
+    # Save to .env
     if [ -f "$ENV_FILE" ]; then
-        cp "$ENV_FILE" "${ENV_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
-        echo -e "${GREEN}✅${NC} Backup .env создан"
-    fi
-
-    # Удаляем старые TRUECONF переменные
-    if [ -f "$ENV_FILE" ]; then
-        grep -v "^TRUECONF" "$ENV_FILE" > "${ENV_FILE}.tmp" 2>/dev/null || true
+        grep -v "^TRUECONF" "$ENV_FILE" > "${ENV_FILE}.tmp" || true
         mv "${ENV_FILE}.tmp" "$ENV_FILE"
     fi
-
-    # Добавляем новые
-    cat >> "$ENV_FILE" << EOF
-
-# TrueConf Adapter v1.0.0
-TRUECONF_SERVER=${TRUECONF_SERVER}
-TRUECONF_USERNAME=${TRUECONF_USERNAME}
-TRUECONF_PASSWORD=${TRUECONF_PASSWORD}
-TRUECONF_USE_SSL=$(echo "$USE_SSL" | tr '[:upper:]' '[:lower:]')
-TRUECONF_VERIFY_SSL=false
-TRUECONF_ALLOW_ALL_USERS=${ALLOW_ALL_USERS}
-TRUECONF_ALLOWED_USERS=${ALLOWED_USERS:-}
-EOF
-
-    echo -e "${GREEN}✅${NC} Настройки сохранены в ~/.hermes/.env"
+    {
+        echo ""
+        echo "# TrueConf Adapter"
+        echo "TRUECONF_SERVER=${TRUECONF_SERVER}"
+        [ -n "$TRUECONF_USERNAME" ] && echo "TRUECONF_USERNAME=${TRUECONF_USERNAME}"
+        [ -n "$TRUECONF_PASSWORD" ] && echo "TRUECONF_PASSWORD=${TRUECONF_PASSWORD}"
+        echo "TRUECONF_USE_SSL=${TRUECONF_USE_SSL}"
+        echo "TRUECONF_VERIFY_SSL=${TRUECONF_VERIFY_SSL}"
+        echo "TRUECONF_ALLOW_ALL_USERS=${TRUECONF_ALLOW_ALL}"
+        echo "TRUECONF_ALLOWED_USERS=${ALLOWED_USERS}"
+        [ -n "$HOME_CHANNEL" ] && echo "TRUECONF_HOME_CHANNEL=${HOME_CHANNEL}"
+        echo "TRUECONF_HOME_CHANNEL_NAME=Home"
+    } >> "$ENV_FILE"
+    echo -e "${GREEN}✅${NC} Settings saved"
 fi
-echo ""
 
-# ═══════════════════════════════════════════
-# 9. Готово
-# ═══════════════════════════════════════════
-echo -e "${GREEN}"
-echo "╔═══════════════════════════════════════════╗"
-echo "║     ✅ Установка завершена!               ║"
-echo "╚═══════════════════════════════════════════╝"
-echo -e "${NC}"
 echo ""
-echo -e "${YELLOW}📋 Что дальше:${NC}"
-echo ""
-echo "1. Перезапустите gateway:"
-echo "   hermes gateway stop && hermes gateway start"
-echo "   (НЕ используйте 'restart' — он может зависнуть)"
-echo ""
-echo "2. Проверьте подключение:"
-echo "   grep -i trueconf ~/.hermes/logs/agent.log | tail -10"
-echo ""
-echo "3. Проверьте работу:"
-echo "   journalctl --user -u hermes-gateway.service -f"
-echo ""
-echo "4. После hermes update патчи применятся автоматически:"
-echo "   • Git hook (post-merge) — после git pull"
-echo "   • Systemd ExecStartPre — при старте gateway"
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${GREEN}💡 Бот готов к использованию!${NC}"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
+echo -e "${GREEN}✅ Installation complete!${NC}"
+echo "Restart gateway: hermes gateway stop && hermes gateway start"
