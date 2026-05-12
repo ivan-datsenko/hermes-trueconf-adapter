@@ -574,6 +574,8 @@ fi
 # ───────────────────────────────────────────
 ADAPTER_SRC="${ADAPTER_DIR}/gateway/platforms/trueconf.py"
 ADAPTER_DST="${HERMES_DIR}/gateway/platforms/trueconf.py"
+INIT_SRC="${ADAPTER_DIR}/gateway/platforms/__init__.py"
+INIT_DST="${HERMES_DIR}/gateway/platforms/__init__.py"
 
 if [ -f "$ADAPTER_SRC" ]; then
     if [ -f "$ADAPTER_DST" ] && diff -q "$ADAPTER_SRC" "$ADAPTER_DST" >/dev/null 2>&1; then
@@ -586,6 +588,17 @@ if [ -f "$ADAPTER_SRC" ]; then
     fi
 else
     echo "  ⚠️ Warning: adapter source not found: $ADAPTER_SRC"
+fi
+
+if [ -f "$INIT_SRC" ]; then
+    if [ -f "$INIT_DST" ] && diff -q "$INIT_SRC" "$INIT_DST" >/dev/null 2>&1; then
+        log_skip "gateway/platforms/__init__.py (already up to date)"
+    else
+        log_patch "Copying gateway/platforms/__init__.py..."
+        cp "$INIT_SRC" "$INIT_DST"
+        log_ok "gateway/platforms/__init__.py copied"
+        PATCHED=$((PATCHED + 1))
+    fi
 fi
 
 # ───────────────────────────────────────────
@@ -657,6 +670,7 @@ trueconf_section = '''  trueconf:
   - terminal
   - todo
   - tts
+  - trueconf
   - vision
   - web
 '''
@@ -686,6 +700,42 @@ PYEOF
 else
     echo "  ⚠️ Warning: config.yaml not found, skipping"
 fi
+
+# ───────────────────────────────────────────
+# 9. tools/trueconf_tool.py — Platform Tools
+# ───────────────────────────────────────────
+TOOLS_SRC="${ADAPTER_DIR}/tools/trueconf_tool.py"
+TOOLS_DST="${HERMES_DIR}/tools/trueconf_tool.py"
+
+if [ -f "$TOOLS_SRC" ]; then
+    if [ -f "$TOOLS_DST" ] && diff -q "$TOOLS_SRC" "$TOOLS_DST" >/dev/null 2>&1; then
+        log_skip "tools/trueconf_tool.py (already up to date)"
+    else
+        log_patch "Copying TrueConf tools..."
+        cp "$TOOLS_SRC" "$TOOLS_DST"
+        log_ok "TrueConf tools copied"
+        PATCHED=$((PATCHED + 1))
+    fi
+fi
+
+# ───────────────────────────────────────────
+# 10. Fix send_message_tool media check
+# ───────────────────────────────────────────
+# We need to make sure 'trueconf' is in the allowed media platforms list
+python3 - "$SEND_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+# Already handled in 5c, but let's double check other places
+if 'and trueconf' not in content:
+    content = content.replace('and feishu', 'feishu and trueconf')
+
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
+PYEOF
 
 # ───────────────────────────────────────────
 # Done
