@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================
-# TrueConf Adapter v2.1.0 — Interactive Installer
+# TrueConf Adapter v2.1.1 — Interactive Installer
 # ============================================
 set -e
 
@@ -61,7 +61,7 @@ ask() {
 
 echo -e "${GREEN}"
 echo "╔═══════════════════════════════════════╗"
-echo "║   TrueConf Adapter v2.1.0 — Installer    ║"
+echo "║   TrueConf Adapter v2.1.1 — Installer    ║"
 echo "╚═══════════════════════════════════════╝"
 echo -e "${NC}"
 echo ""
@@ -79,8 +79,22 @@ echo ""
 
 # ── 2. Install dependencies ────────────────────
 echo -e "${YELLOW}⏳ Installing dependencies...${NC}"
-$PYTHON -m pip install --force-reinstall "git+https://github.com/TrueConf/python-trueconf-bot.git#egg=python-trueconf-bot" 2>&1 || die "Failed to install bot library"
+
+# Ensure pip is available
+if ! $PYTHON -m pip --version >/dev/null 2>&1; then
+    echo "  pip not found in venv, attempting to install via ensurepip..."
+    $PYTHON -m ensurepip --upgrade 2>&1 || echo "  Warning: ensurepip failed, continuing anyway..."
+fi
+
+# Try to install bot library
+echo "  Installing python-trueconf-bot..."
+$PYTHON -m pip install --force-reinstall "git+https://github.com/TrueConf/python-trueconf-bot.git#egg=python-trueconf-bot" 2>&1 || \
+$PYTHON -m pip install "git+https://github.com/TrueConf/python-trueconf-bot.git" 2>&1 || \
+die "Failed to install bot library. Please ensure 'pip' is installed in the venv: $VENV_DIR"
+
+echo "  Installing httpx==0.28.1..."
 $PYTHON -m pip install "httpx==0.28.1" 2>&1 || die "Failed to install httpx"
+
 echo -e "${GREEN}✅${NC} Dependencies installed"
 echo ""
 
