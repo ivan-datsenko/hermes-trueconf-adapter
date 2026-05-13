@@ -217,7 +217,7 @@ if grep -q 'TrueConfAdapter' "$RUN_PY" 2>/dev/null; then
 else
     log_patch "Adding TrueConfAdapter creation..."
     python3 - "$RUN_PY" << 'PYEOF'
-import sys
+import sys, re
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
@@ -225,9 +225,15 @@ with open(path, 'r') as f:
 if 'TrueConfAdapter' in content:
     sys.exit(0)
 
-# Insert after QQAdapter block
-marker = '            return QQAdapter(config)\n\n        return None'
-replacement = '''            return QQAdapter(config)
+# Stable insertion: find "return None" right before "def _is_user_authorized"
+# This works regardless of which platforms exist above (QQ, Yuanbao, etc.)
+pattern = r'(\n        return None\n    def _is_user_authorized)'
+match = re.search(pattern, content)
+if not match:
+    print("WARN: could not find insertion point in run.py")
+    sys.exit(1)
+
+tc_block = '''
 
         elif platform == Platform.TRUECONF:
             from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
@@ -235,10 +241,9 @@ replacement = '''            return QQAdapter(config)
                 logger.warning("TrueConf: python-trueconf-bot not installed. Run: pip install python-trueconf-bot")
                 return None
             return TrueConfAdapter(config)
+'''
 
-        return None'''
-
-content = content.replace(marker, replacement, 1)
+content = content[:match.start()] + tc_block + match.group(0) + content[match.end():]
 with open(path, 'w') as f:
     f.write(content)
 print("OK")
@@ -423,7 +428,7 @@ if [ -f "$SEND_PY" ]; then
         SEND_PATCHED=$((SEND_PATCHED + 1))
     fi
 
-    # _send_trueconf function
+# _send_trueconf function
     if grep -q '_send_trueconf' "$SEND_PY" 2>/dev/null; then
         log_skip "_send_trueconf function"
     else
@@ -437,8 +442,13 @@ with open(path, 'r') as f:
 if '_send_trueconf' in content:
     sys.exit(0)
 
-marker = '# --- Registry ---'
+# Use a stable marker — _check_send_message always exists
+marker = 'def _check_send_message'
 func = '''
+
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+_VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".3gp"}
+_AUDIO_EXTS = {".ogg", ".opus", ".mp3", ".wav", ".m4a"}
 
 async def _send_trueconf(extra, chat_id, message, media_files=None):
     """Send via TrueConf using the adapter's WebSocket send pipeline."""
@@ -471,9 +481,12 @@ async def _send_trueconf(extra, chat_id, message, media_files=None):
                         else:
                             media_path = media_item
                         ext = os.path.splitext(media_path)[1].lower()
-                        _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
                         if ext in _IMAGE_EXTS:
                             await adapter.send_image_file(chat_id, media_path)
+                        elif ext in _VIDEO_EXTS:
+                            await adapter.send_video(chat_id, media_path)
+                        elif ext in _AUDIO_EXTS:
+                            await adapter.send_voice(chat_id, media_path)
                         else:
                             await adapter.send_document(chat_id, media_path)
                     except Exception as e:
@@ -494,7 +507,6 @@ with open(path, 'w') as f:
 print("OK")
 PYEOF
         log_ok "_send_trueconf function added"
-        SEND_PATCHED=$((SEND_PATCHED + 1))
     fi
 
     # TrueConf in non-media routing
@@ -576,12 +588,42 @@ BOT_PY="${SITE_PACKAGES}/trueconf/client/bot.py"
 PARSER_PY="${SITE_PACKAGES}/trueconf/types/parser.py"
 
 if [ -f "$BOT_PY" ] && [ -f "${ADAPTER_DIR}/lib_patches/bot.py" ]; then
+    # Check if bot.py needs full replacement (missing download_file_by_id)
     if grep -q "download_file_by_id" "$BOT_PY" 2>/dev/null; then
-        log_skip "bot.py lib patch"
+        log_skip "bot.py lib patch (download_file_by_id)"
     else
         log_patch "Patching bot.py (adding download_file_by_id)..."
         cp "${ADAPTER_DIR}/lib_patches/bot.py" "$BOT_PY"
         log_ok "bot.py patched"
+        PATCHED=$((PATCHED + 1))
+    fi
+
+    # Check if check_version has None-guard (prevents crash when server version is unknown)
+    if grep -q "current_version is None" "$BOT_PY" 2>/dev/null; then
+        log_skip "bot.py check_version None-guard"
+    else
+        log_patch "Patching bot.py check_version (None-guard)..."
+        python3 - "$BOT_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if 'current_version is None' in content:
+    sys.exit(0)
+
+old = '        _VersionChecker.check(current_version)'
+new = '''        if current_version is None:
+            loggers.chatbot.warning("⚠️ Could not determine server version, skipping version check")
+            return
+        _VersionChecker.check(current_version)'''
+
+content = content.replace(old, new, 1)
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
+PYEOF
+        log_ok "bot.py check_version None-guard added"
         PATCHED=$((PATCHED + 1))
     fi
 fi
@@ -692,6 +734,149 @@ PYEOF
 else
     echo "  ⚠ config.yaml not found — skipping toolsets config"
     echo "    After hermes setup, run: bash ${ADAPTER_DIR}/apply_patches.sh"
+fi
+
+# ───────────────────────────────────────────
+# 7. Add _setup_trueconf to hermes_cli/gateway.py
+# ───────────────────────────────────────────
+SETUP_PY="${HERMES_DIR}/hermes_cli/gateway.py"
+
+if [ -f "$SETUP_PY" ]; then
+    if grep -q "_setup_trueconf\|def _setup_signal\|def _setup_yuanbao" "$SETUP_PY" 2>/dev/null | grep -v "^#.*_setup_trueconf"; then
+        if grep -q "def _setup_trueconf" "$SETUP_PY" 2>/dev/null; then
+            log_skip "_setup_trueconf function"
+        else
+            log_patch "Adding _setup_trueconf to gateway setup..."
+            python3 - "$SETUP_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if 'def _setup_trueconf' in content:
+    sys.exit(0)
+
+# Insert before _setup_signal
+marker = 'def _setup_signal():'
+if marker not in content:
+    # Try before def _setup_yuanbao
+    marker = 'def _setup_yuanbao():'
+
+func = '''def _setup_trueconf():
+    """Interactive setup for TrueConf messaging platform."""
+    from hermes_cli.config import prompt, prompt_yes_no, print_info, print_success, print_warning, Colors, color
+    from hermes_cli.env_loader import save_env_value, get_env_value
+
+    print()
+    print(color("  ─── 📹 TrueConf Setup ───", Colors.CYAN))
+
+    trueconf_server = get_env_value("TRUECONF_SERVER")
+    if trueconf_server:
+        print_success("TrueConf is already configured.")
+        if not prompt_yes_no("  Reconfigure TrueConf?", False):
+            return
+
+    print()
+    print_info("  Enter the address of your TrueConf server (e.g. video.company.com):")
+    server = prompt("  Server address:", password=False)
+    if not server.strip():
+        print_warning("  Skipped — TrueConf won't work without server address.")
+        return
+    save_env_value("TRUECONF_SERVER", server.strip())
+
+    print()
+    print_info("  Enter the bot's TrueConf username:")
+    username = prompt("  Username:", password=False)
+    if not username.strip():
+        print_warning("  Skipped — TrueConf won't work without credentials.")
+        return
+    save_env_value("TRUECONF_USERNAME", username.strip())
+
+    print()
+    print_info("  Enter the bot's TrueConf password:")
+    password = prompt("  Password:", password=True)
+    if not password.strip():
+        print_warning("  Skipped — TrueConf won't work without credentials.")
+        return
+    save_env_value("TRUECONF_PASSWORD", password.strip())
+
+    print()
+    print_info("  Use SSL/HTTPS for the TrueConf server? (usually Yes):")
+    use_ssl = prompt_yes_no("  SSL/HTTPS?", True)
+    save_env_value("TRUECONF_USE_SSL", "true" if use_ssl else "false")
+
+    # Verify SSL on the server
+    if use_ssl:
+        import subprocess
+        result = subprocess.run(
+            ["curl", "-sk", "--max-time", "5", f"https://{server.strip()}:443"],
+            capture_output=True
+        )
+        if result.returncode == 0:
+            print_success("  SSL connection verified!")
+        else:
+            print_warning("  Could not verify SSL connection — check server address.")
+
+    print()
+    print_info("  Allow all users to message the bot?")
+    allow_all = prompt_yes_no("  Allow all users?", True)
+    save_env_value("TRUECONF_ALLOW_ALL_USERS", "true" if allow_all else "false")
+
+    if not allow_all:
+        print()
+        print_info("  Enter allowed TrueConf user IDs (comma-separated):")
+        allowed = prompt("  Allowed users:", password=False)
+        save_env_value("TRUECONF_ALLOWED_USERS", allowed.strip())
+
+    print()
+    print_success("  📹 TrueConf configured!")
+    print_info("  Restart the gateway: hermes gateway restart")
+
+
+'''
+
+content = content.replace(marker, func + marker, 1)
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
+PYEOF
+            log_ok "_setup_trueconf added to gateway setup"
+            PATCHED=$((PATCHED + 1))
+        fi
+    fi
+
+    # Add trueconf to platform setup list
+    if grep -q '"trueconf".*_setup_trueconf' "$SETUP_PY" 2>/dev/null; then
+        log_skip "TrueConf in setup platform list"
+    else
+        log_patch "Adding TrueConf to setup platform list..."
+        python3 - "$SETUP_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if '"trueconf"' in content and '_setup_trueconf' in content:
+    sys.exit(0)
+
+# Find yuanbao in setup list and add trueconf after it
+# Pattern: ("yuanbao", _setup_yuanbao),
+marker = '("yuanbao", _setup_yuanbao),'
+if marker in content:
+    content = content.replace(marker, marker + '\n        ("trueconf", _setup_trueconf),', 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP: yuanbao marker not found")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "TrueConf added to platform list"
+            PATCHED=$((PATCHED + 1))
+        fi
+    fi
+else
+    echo "  ⚠ gateway.py not found — skipping setup function"
 fi
 
 # ───────────────────────────────────────────

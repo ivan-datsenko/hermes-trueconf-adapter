@@ -234,6 +234,31 @@ if [ "$SKIP_CONFIG" != "true" ]; then
     [ -z "$TRUECONF_SERVER" ] && die "Адрес сервера не может быть пустым"
     echo ""
 
+    # ── Авто-определение SSL ──
+    SSL_AUTO=""
+    echo -e "${YELLOW}⏳ Проверяю SSL-соединение с ${TRUECONF_SERVER}...${NC}"
+    if command -v curl >/dev/null 2>&1; then
+        if curl -sk --max-time 5 "https://${TRUECONF_SERVER}:443" >/dev/null 2>&1; then
+            SSL_AUTO="true"
+            echo -e "  ${GREEN}✅${NC} Порт 443 (HTTPS) доступен — SSL включён автоматически"
+        elif curl -sk --max-time 5 "http://${TRUECONF_SERVER}:80" >/dev/null 2>&1; then
+            SSL_AUTO="false"
+            echo -e "  ${YELLOW}⚠${NC} Только порт 80 (HTTP) доступен — SSL будет отключён"
+        else
+            echo -e "  ${YELLOW}⚠${NC} Не удалось подключиться к серверу — SSL будет запрошен вручную"
+        fi
+    elif command -v openssl >/dev/null 2>&1; then
+        if openssl s_client -connect "${TRUECONF_SERVER}:443" -servername "$TRUECONF_SERVER" </dev/null 2>/dev/null | grep -q "CONNECTED"; then
+            SSL_AUTO="true"
+            echo -e "  ${GREEN}✅${NC} Порт 443 (HTTPS) доступен — SSL включён автоматически"
+        else
+            echo -e "  ${YELLOW}⚠${NC} Порт 443 недоступен — потребуется ручной ввод"
+        fi
+    else
+        echo -e "  ${YELLOW}⚠${NC} curl и openssl не найдены — настройте SSL вручную"
+    fi
+    echo ""
+
     ask "Логин бота (например: bot_username):"
     read -r -p "  Введите: " TRUECONF_USERNAME
     [ -z "$TRUECONF_USERNAME" ] && die "Логин бота не может быть пустым"
@@ -246,9 +271,30 @@ if [ "$SKIP_CONFIG" != "true" ]; then
     [ -z "$TRUECONF_PASSWORD" ] && die "Пароль бота не может быть пустым"
     echo ""
 
-    ask "Использовать SSL/HTTPS?" "[Y/n]"
-    read -r -p "  Введите: " USE_SSL
-    USE_SSL="${USE_SSL:-y}"
+    # ── SSL режим ──
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    if [ -n "$SSL_AUTO" ]; then
+        if [ "$SSL_AUTO" = "true" ]; then
+            USE_SSL="y"
+            echo -e "${GREEN}Автоматически определён SSL: ВКЛ${NC}"
+        else
+            USE_SSL="n"
+            echo -e "${YELLOW}Автоматически определён SSL: ВЫКЛ${NC}"
+        fi
+        ask "Изменить? Установите 'n' если сервер без HTTPS" "[$([ "$SSL_AUTO" = "true" ] && echo "Y/n" || echo "y/N")]:"
+        read -r -p "  Введите: " SSL_OVERRIDE
+        if [ -n "$SSL_OVERRIDE" ]; then
+            if [[ "$SSL_OVERRIDE" =~ ^[Yy]$ ]]; then
+                USE_SSL="y"
+            else
+                USE_SSL="n"
+            fi
+        fi
+    else
+        ask "Использовать SSL/HTTPS?" "[Y/n]"
+        read -r -p "  Введите: " USE_SSL
+        USE_SSL="${USE_SSL:-y}"
+    fi
     echo ""
 
     # ── Контроль доступа ──

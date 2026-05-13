@@ -264,6 +264,9 @@ class Bot:
 
     async def check_version(self):
         current_version = await self.server_version
+        if current_version is None:
+            loggers.chatbot.warning("⚠️ Could not determine server version, skipping version check")
+            return
         _VersionChecker.check(current_version)
 
     @async_cached_property
