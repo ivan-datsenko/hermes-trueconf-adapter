@@ -211,7 +211,7 @@ if [ -f "$GATEWAY_PY" ]; then
     if grep -q '"key": "trueconf"' "$GATEWAY_PY" 2>/dev/null; then
         log_skip "TrueConf in _PLATFORMS"
     else
-        log_patch "Adding TrueConf to _PLATFORMS in gateway.py..."
+log_patch "Adding TrueConf to _PLATFORMS in gateway.py..."
         python3 - "$GATEWAY_PY" << 'PYEOF'
 import sys
 path = sys.argv[1]
@@ -221,18 +221,46 @@ with open(path, 'r') as f:
 if '"key": "trueconf"' in content:
     sys.exit(0)
 
-# Insert TrueConf entry after yuanbao (last entry before ])
-marker = '    },'
-# Find the yuanbao entry closing brace and add after
-# yuanbao entry ends with:         ],
-# We need to find the yuanbao entry and insert after it
+# Find the yuanbao entry and insert after it
+# yuanbao is the LAST entry before the closing ]
+# Pattern: find "key": "yuanbao" then find its closing "},\n" and insert after that
+yuanbao_marker = '"key": "yuanbao"'
+idx = content.find(yuanbao_marker)
+if idx == -1:
+    print("SKIP: yuanbao not found")
+    sys.exit(0)
+
+# Find the closing of yuanbao entry: look for the pattern "...YUANBAO...    },\n"
+# right before the final "]\n" that closes _PLATFORMS
+# The yuanbao entry ends with:
+#         ],  <-- vars array close
+#     },  <-- dict close
+# ]   <-- list close
+# So we need to find the "},\n" that is immediately followed by "]\n"
+
+# Strategy: find the final "\n]\ndef" in the file (end of _PLATFORMS)
+# and find the "},\n" right before it (that's yuanbao's dict close)
 import re
-# Match the yuanbao block (from "key": "yuanbao" to its closing })
-pattern = r'("key": "yuanbao".*?\n    \],)'
-match = re.search(pattern, content, re.DOTALL)
-if match:
-    insert_pos = match.end()
-    trueconf_entry = '''
+# Find the end of _PLATFORMS list (starts with "def _all_platforms")
+all_platforms_start = content.find("def _all_platforms")
+if all_platforms_start == -1:
+    print("SKIP: _all_platforms not found")
+    sys.exit(0)
+
+# The list content is everything between "_PLATFORMS = [" and "def _all_platforms"
+list_start = content.find("_PLATFORMS = [")
+list_end = all_platforms_start
+list_content = content[list_start:list_end]
+
+# Find the last "},\n" in the list (that's yuanbao's close)
+last_brace_idx = list_content.rfind("},\n")
+if last_brace_idx == -1:
+    print("SKIP: closing } not found")
+    sys.exit(0)
+
+# Calculate absolute position in file
+abs_pos = list_start + last_brace_idx + 2  # +2 for "},\n"
+trueconf_entry = '''
     {
         "key": "trueconf",
         "label": "TrueConf",
@@ -249,12 +277,11 @@ if match:
              "help": "User ID for DM delivery, or empty to set via /sethome command."},
         ],
     },'''
-    content = content[:insert_pos] + trueconf_entry + content[insert_pos:]
-    with open(path, 'w') as f:
-        f.write(content)
-    print("OK")
-else:
-    print("SKIP")
+
+content = content[:abs_pos] + trueconf_entry + content[abs_pos:]
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
 PYEOF
         if [ $? -eq 0 ]; then
             log_ok "TrueConf in _PLATFORMS added"
@@ -303,12 +330,12 @@ PYEOF
     fi
 
     # 2b-iii: Add trueconf to _builtin_setup_fn dict
-    if grep -q '"yuanbao": _setup_yuanbao,' "$GATEWAY_PY" 2>/dev/null; then
+    if grep -q '"qqbot": _setup_qqbot,' "$GATEWAY_PY" 2>/dev/null; then
         if grep -q '"trueconf": _setup_trueconf,' "$GATEWAY_PY" 2>/dev/null; then
             log_skip "TrueConf in _builtin_setup_fn"
         else
             log_patch "Adding TrueConf to _builtin_setup_fn..."
-            sed -i 's/"yuanbao": _setup_yuanbao,/"yuanbao": _setup_yuanbao,\n        "trueconf": _setup_trueconf,/' "$GATEWAY_PY"
+            sed -i 's/"qqbot": _setup_qqbot,/"qqbot": _setup_qqbot,\n        "trueconf": _setup_trueconf,/' "$GATEWAY_PY"
             log_ok "TrueConf in _builtin_setup_fn added"
             GATEWAY_PATCHED=$((GATEWAY_PATCHED + 1))
         fi
