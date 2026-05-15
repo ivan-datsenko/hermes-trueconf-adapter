@@ -1,11 +1,61 @@
 #!/bin/bash
 # ============================================
-# TrueConf Adapter v2.0.0 — Interactive Installer
+# TrueConf Adapter v5.0.0 — Interactive Installer
 # ============================================
-# Usage: bash install.sh
+# Usage: 
+#   Option 1 — from cloned repo:
+#     cd ~/hermes-trueconf-adapter && bash install.sh
+#
+#   Option 2 — one-liner on clean machine:
+#     curl -fsSL https://raw.githubusercontent.com/ivan-datsenko/hermes-trueconf-adapter/beta-v5/install.sh | bash
+#
+#   Option 3 — clone then install:
+#     git clone -b beta-v5 https://github.com/ivan-datsenko/hermes-trueconf-adapter.git ~/hermes-trueconf-adapter
+#     cd ~/hermes-trueconf-adapter && bash install.sh
 # ============================================
 
 set -e
+
+# ── Clone repo if running from curl (no local git repo) ──
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+if [ -z "$SCRIPT_DIR" ] || [ ! -d "${SCRIPT_DIR}/.git" ]; then
+    # Running from curl or outside repo — clone first
+    REPO_DIR="${HOME}/hermes-trueconf-adapter"
+    REPO_URL="https://github.com/ivan-datsenko/hermes-trueconf-adapter.git"
+    BRANCH="beta-v5"
+
+    echo -e "\033[0;36m📦 Cloning TrueConf Adapter (${BRANCH})...\033[0m"
+
+    if [ -d "$REPO_DIR" ]; then
+        echo -e "\033[1;33m⚠ Directory exists: ${REPO_DIR}\033[0m"
+        read -p "  Reclone? (y/N): " rec
+        if [[ "$rec" =~ ^[Yy]$ ]]; then
+            rm -rf "$REPO_DIR"
+        else
+            echo "  Using existing directory."
+        fi
+    fi
+
+    if [ ! -d "$REPO_DIR" ]; then
+        if command -v git >/dev/null 2>&1; then
+            git clone -b "$BRANCH" "$REPO_URL" "$REPO_DIR" || {
+                echo -e "\033[0;31m❌ git clone failed. Install git first:\033[0m"
+                echo "   sudo apt install git -y"
+                exit 1
+            }
+        else
+            echo -e "\033[0;31m❌ git not found. Install git first:\033[0m"
+            echo "   sudo apt install git -y"
+            exit 1
+        fi
+    fi
+
+    echo -e "\033[0;32m✅ Repo ready: ${REPO_DIR}\033[0m"
+    echo ""
+    echo "  Running install from cloned repo..."
+    cd "$REPO_DIR"
+    exec bash "${REPO_DIR}/install.sh"
+fi
 
 # ── Auto-detect HERMES_DIR ──────────────────
 if [ -z "$HERMES_DIR" ]; then

@@ -2,8 +2,8 @@
 
 [English](README_EN.md) | Русский
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue)
-![Status](https://img.shields.io/badge/status-beta-orange)
+![Version](https://img.shields.io/badge/version-5.0.0-blue)
+![Branch](https://img.shields.io/badge/branch--beta--v5-green)
 
 Адаптер [TrueConf](https://trueconf.com/) для [Hermes Agent](https://github.com/NousResearch/hermes-agent) — позволяет общаться с AI-агентом через TrueConf.
 
@@ -28,12 +28,20 @@
 
 ## Установка
 
+### Быстрая установка (one-liner)
+
 ```bash
-# 1. Клонируем репозиторий
-git clone https://github.com/ivan-datsenko/hermes-trueconf-adapter.git /tmp/trueconf-adapter
+curl -fsSL https://raw.githubusercontent.com/ivan-datsenko/hermes-trueconf-adapter/beta-v5/install.sh | bash
+```
+
+### Или вручную
+
+```bash
+# 1. Клонируем репозиторий (ветка beta-v5)
+git clone -b beta-v5 https://github.com/ivan-datsenko/hermes-trueconf-adapter.git ~/hermes-trueconf-adapter
 
 # 2. Переходим в директорию
-cd /tmp/trueconf-adapter
+cd ~/hermes-trueconf-adapter
 
 # 3. Запускаем установщик
 bash install.sh
@@ -42,9 +50,16 @@ bash install.sh
 Установщик сам спросит:
 - Адрес сервера TrueConf
 - Логин и пароль бота
-- Кому разрешить доступ
+- Home channel (или можно задать позже через `/sethome`)
 
 И автоматически установит зависимости, применит патчи и сохранит настройки.
+
+### Через hermes setup (после установки)
+
+```bash
+hermes setup gateway
+# Выберите 📹 TrueConf в меню платформ
+```
 
 ### Если Hermes Agent установлен не в стандартную директорию
 
