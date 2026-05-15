@@ -200,6 +200,124 @@ PYEOF
 fi
 
 # ───────────────────────────────────────────
+# 2b. hermes_cli/gateway.py — _PLATFORMS dict (hermes setup menu)
+# ───────────────────────────────────────────
+GATEWAY_PY="${HERMES_DIR}/hermes_cli/gateway.py"
+
+if [ -f "$GATEWAY_PY" ]; then
+    GATEWAY_PATCHED=0
+
+    # 2b-i: Add TrueConf entry to _PLATFORMS list
+    if grep -q '"key": "trueconf"' "$GATEWAY_PY" 2>/dev/null; then
+        log_skip "TrueConf in _PLATFORMS"
+    else
+        log_patch "Adding TrueConf to _PLATFORMS in gateway.py..."
+        python3 - "$GATEWAY_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if '"key": "trueconf"' in content:
+    sys.exit(0)
+
+# Insert TrueConf entry after yuanbao (last entry before ])
+marker = '    },'
+# Find the yuanbao entry closing brace and add after
+# yuanbao entry ends with:         ],
+# We need to find the yuanbao entry and insert after it
+import re
+# Match the yuanbao block (from "key": "yuanbao" to its closing })
+pattern = r'("key": "yuanbao".*?\n    \],)'
+match = re.search(pattern, content, re.DOTALL)
+if match:
+    insert_pos = match.end()
+    trueconf_entry = '''
+    {
+        "key": "trueconf",
+        "label": "TrueConf",
+        "emoji": "📹",
+        "token_var": "",
+        "vars": [
+            {"name": "TRUECONF_SERVER", "prompt": "TrueConf Server (e.g. video.example.net or IP)", "password": False,
+             "help": "Enter your TrueConf Server hostname or IP address."},
+            {"name": "TRUECONF_USERNAME", "prompt": "Bot username", "password": False,
+             "help": "Username of the bot account on this server."},
+            {"name": "TRUECONF_PASSWORD", "prompt": "Bot password", "password": True,
+             "help": "Password for the bot account."},
+            {"name": "TRUECONF_HOME_CHANNEL", "prompt": "Home channel (user ID, or empty to set later with /sethome)", "password": False,
+             "help": "User ID for DM delivery, or empty to set via /sethome command."},
+        ],
+    },'''
+    content = content[:insert_pos] + trueconf_entry + content[insert_pos:]
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "TrueConf in _PLATFORMS added"
+            GATEWAY_PATCHED=$((GATEWAY_PATCHED + 1))
+        fi
+    fi
+
+    # 2b-ii: Add _setup_trueconf function
+    if grep -q 'def _setup_trueconf' "$GATEWAY_PY" 2>/dev/null; then
+        log_skip "_setup_trueconf function"
+    else
+        log_patch "Adding _setup_trueconf function..."
+        python3 - "$GATEWAY_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if 'def _setup_trueconf' in content:
+    sys.exit(0)
+
+# Insert after _setup_yuanbao
+marker = 'def _setup_yuanbao():'
+if marker not in content:
+    marker = 'def _builtin_setup_fn'
+
+func = '''
+def _setup_trueconf():
+    """Interactive setup for TrueConf — uses standard platform flow."""
+    from hermes_cli.gateway import _all_platforms
+    platforms = _all_platforms()
+    trueconf_platform = next((p for p in platforms if p["key"] == "trueconf"), None)
+    if trueconf_platform:
+        _setup_standard_platform(trueconf_platform)
+    else:
+        print("  TrueConf platform not found in _PLATFORMS")
+'''
+
+content = content.replace(marker, func + marker, 1)
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
+PYEOF
+        log_ok "_setup_trueconf function added"
+        GATEWAY_PATCHED=$((GATEWAY_PATCHED + 1))
+    fi
+
+    # 2b-iii: Add trueconf to _builtin_setup_fn dict
+    if grep -q '"yuanbao": _setup_yuanbao,' "$GATEWAY_PY" 2>/dev/null; then
+        if grep -q '"trueconf": _setup_trueconf,' "$GATEWAY_PY" 2>/dev/null; then
+            log_skip "TrueConf in _builtin_setup_fn"
+        else
+            log_patch "Adding TrueConf to _builtin_setup_fn..."
+            sed -i 's/"yuanbao": _setup_yuanbao,/"yuanbao": _setup_yuanbao,\n        "trueconf": _setup_trueconf,/' "$GATEWAY_PY"
+            log_ok "TrueConf in _builtin_setup_fn added"
+            GATEWAY_PATCHED=$((GATEWAY_PATCHED + 1))
+        fi
+    fi
+
+    PATCHED=$((PATCHED + GATEWAY_PATCHED))
+fi
+
+# ───────────────────────────────────────────
 # 3. gateway/run.py — TrueConfAdapter creation + auth maps
 # ───────────────────────────────────────────
 RUN_PY="${HERMES_DIR}/gateway/run.py"
