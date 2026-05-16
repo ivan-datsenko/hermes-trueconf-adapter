@@ -398,9 +398,15 @@ if func_start is None:
             break
         if 'elif platform == Platform.' in line and line.strip().startswith('elif'):
             last_elif_idx = i
+            print(f"DEBUG: Found elif at line {i}")
 
+    print(f"DEBUG: last_elif_idx={last_elif_idx}")
     if last_elif_idx is None:
         print("ERROR: No elif platform == found in _create_adapter")
+        print(f"DEBUG: func_start={func_start}, total lines={len(lines)}")
+        # Print lines around func_start to debug
+        for j in range(func_start, min(func_start + 20, len(lines))):
+            print(f"  {j}: {repr(lines[j][:80])}")
         sys.exit(1)
 
     # Find the end of the last elif block: first empty line or next elif/return at same indent
