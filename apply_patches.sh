@@ -309,15 +309,45 @@ if marker not in content:
     marker = 'def _builtin_setup_fn'
 
 func = '''
+
 def _setup_trueconf():
-    """Interactive setup for TrueConf — uses standard platform flow."""
-    from hermes_cli.gateway import _all_platforms
+    """Interactive setup for TrueConf with SSL and access control questions."""
+    from hermes_cli.gateway import _all_platforms, _setup_standard_platform
+    from hermes_cli.setup_wizard import _read_line_bool
     platforms = _all_platforms()
     trueconf_platform = next((p for p in platforms if p["key"] == "trueconf"), None)
-    if trueconf_platform:
-        _setup_standard_platform(trueconf_platform)
-    else:
+    if not trueconf_platform:
         print("  TrueConf platform not found in _PLATFORMS")
+        return
+
+    # Use standard setup for basic config (server, username, password)
+    _setup_standard_platform(trueconf_platform)
+
+    # Additional TrueConf-specific questions
+    try:
+        # SSL verification
+        verify_ssl = _read_line_bool("  Verify SSL certificate", default=False)
+        # Allow all users
+        allow_all = _read_line_bool("  Allow all users", default=True)
+
+        # Save to config extra
+        import yaml
+        from pathlib import Path
+        config_path = Path.home() / ".hermes" / "config.yaml"
+        if config_path.exists():
+            config = yaml.safe_load(config_path.read_text()) or {}
+            if "platforms" not in config:
+                config["platforms"] = {}
+            if "trueconf" not in config["platforms"]:
+                config["platforms"]["trueconf"] = {}
+            if "extra" not in config["platforms"]["trueconf"]:
+                config["platforms"]["trueconf"]["extra"] = {}
+            config["platforms"]["trueconf"]["extra"]["verify_ssl"] = verify_ssl
+            config["platforms"]["trueconf"]["extra"]["allow_all_users"] = allow_all
+            config_path.write_text(yaml.dump(config, default_flow_style=False, allow_unicode=True))
+            print(f"  ✓ TrueConf configured: ssl_verify={verify_ssl}, allow_all={allow_all}")
+    except Exception as e:
+        print(f"  ⚠ Could not save extra config: {e}")
 '''
 
 content = content.replace(marker, func + marker, 1)
