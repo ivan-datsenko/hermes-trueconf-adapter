@@ -335,9 +335,9 @@ class TrueConfAdapter(BasePlatformAdapter):
             return default
         if isinstance(value, str):
             lowered = value.strip().lower()
-            if lowered in ("true", "1", "yes", "on"):
+            if lowered in ("true", "1", "yes", "on", "y"):
                 return True
-            if lowered in ("false", "0", "no", "off"):
+            if lowered in ("false", "0", "no", "off", "n"):
                 return False
             return default
         return bool(value)

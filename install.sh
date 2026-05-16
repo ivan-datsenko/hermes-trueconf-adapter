@@ -376,8 +376,11 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         echo "TRUECONF_SERVER=${TRUECONF_SERVER}"
         echo "TRUECONF_USERNAME=${TRUECONF_USERNAME}"
         echo "TRUECONF_PASSWORD=${TRUECONF_PASSWORD}"
-        echo "TRUECONF_USE_SSL=$(echo "$USE_SSL" | tr '[:upper:]' '[:lower:]')"
-        echo "TRUECONF_VERIFY_SSL=$(echo "$VERIFY_SSL" | tr '[:upper:]' '[:lower:]')"
+        # Convert y/n answers to true/false for proper bool parsing
+        if [[ "$USE_SSL" =~ ^[Yy]$ ]]; then USE_SSL_BOOL="true"; else USE_SSL_BOOL="false"; fi
+        if [[ "$VERIFY_SSL" =~ ^[Yy]$ ]]; then VERIFY_SSL_BOOL="true"; else VERIFY_SSL_BOOL="false"; fi
+        echo "TRUECONF_USE_SSL=${USE_SSL_BOOL}"
+        echo "TRUECONF_VERIFY_SSL=${VERIFY_SSL_BOOL}"
         echo "TRUECONF_ALLOW_ALL_USERS=${ALLOW_ALL_USERS}"
         echo "TRUECONF_ALLOWED_USERS=${ALLOWED_USERS:-}"
     } >> "$ENV_FILE"
