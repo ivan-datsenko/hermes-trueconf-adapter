@@ -407,14 +407,18 @@ if last_elif_idx is None:
     print("ERROR: No elif platform == found in _create_adapter")
     sys.exit(1)
 
-# Now find the first 'return None' after the LAST elif
-for i in range(last_elif_idx + 1, len(lines)):
-    line = lines[i]
-    if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
-        break
-    if line.strip() == 'return None' and line.startswith('        '):
-        return_none_idx = i
-        break
+# Now find the function's final 'return None' after the LAST elif
+    # The final return None has the same indent as the elif chain (8 spaces)
+    # NOT the return None inside nested if blocks (12+ spaces)
+    elif_indent_str = '        '  # 8 spaces = same level as elif
+    for i in range(last_elif_idx + 1, len(lines)):
+        line = lines[i]
+        if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
+            break
+        # Match return None at the same indent level as elif (8 spaces)
+        if line == f'{elif_indent_str}return None\n':
+            return_none_idx = i
+            break
 
 if return_none_idx is None:
     print("ERROR: No return None found after last elif in _create_adapter")
