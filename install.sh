@@ -1,96 +1,57 @@
 #!/bin/bash
 # ============================================
-# TrueConf Adapter v5.0.0 — Interactive Installer
+# TrueConf Adapter v3.0.0 — Interactive Installer
 # ============================================
-# Usage: 
+# Usage:
 #   Option 1 — from cloned repo:
 #     cd ~/hermes-trueconf-adapter && bash install.sh
 #
 #   Option 2 — one-liner on clean machine:
 #     curl -fsSL https://raw.githubusercontent.com/ivan-datsenko/hermes-trueconf-adapter/beta-v5/install.sh | bash
 #
-#   Option 3 — clone then install:
-#     git clone -b beta-v5 https://github.com/ivan-datsenko/hermes-trueconf-adapter.git ~/hermes-trueconf-adapter
-#     cd ~/hermes-trueconf-adapter && bash install.sh
+#   Option 3 — non-interactive (set env vars first):
+#     export TRUECONF_SERVER=10.110.2.240
+#     export TRUECONF_USERNAME=bot_name
+#     export TRUECONF_PASSWORD=secret
+#     export TRUECONF_VERIFY_SSL=false
+#     bash install.sh
 # ============================================
 
 set -e
 
-# ── Non-interactive mode: only via YES=1 flag ──
-# Set YES=1 to skip all interactive prompts (auto-yes)
-# Set TRUECONF_SERVER, TRUECONF_USERNAME, TRUECONF_PASSWORD to auto-configure
-NON_INTERACTIVE="${YES:-0}"
+# ── Non-interactive mode: auto-yes via env vars ──
+# If all required env vars are set, skip interactive prompts
+NON_INTERACTIVE=0
+if [ -n "$TRUECONF_SERVER" ] && [ -n "$TRUECONF_USERNAME" ] && [ -n "$TRUECONF_PASSWORD" ]; then
+    NON_INTERACTIVE=1
+fi
 
-# ── Restore stdin from terminal for interactive mode ──
+# ── Restore stdin from terminal for curl | bash ──
 # When run via curl | bash, stdin is a pipe. Reattach to the controlling
-# terminal so that read prompts work. If no terminal is available (e.g.
-# pure non-interactive CI), skip — the user must set YES=1 + env vars.
+# terminal so that read prompts work.
 if [ "$NON_INTERACTIVE" != "1" ] && [ ! -t 0 ]; then
     if [ -e /dev/tty ]; then
         exec </dev/tty
     else
         echo "⚠ No terminal available — switching to non-interactive mode."
         echo "  Set TRUECONF_SERVER, TRUECONF_USERNAME, TRUECONF_PASSWORD env vars."
+        echo ""
+        if [ -z "$TRUECONF_SERVER" ] || [ -z "$TRUECONF_USERNAME" ] || [ -z "$TRUECONF_PASSWORD" ]; then
+            echo "❌ Missing required env vars. Set them and re-run."
+            exit 1
+        fi
         NON_INTERACTIVE=1
     fi
 fi
 
-# ── Clone repo if running from curl (no local git repo) ──
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
-if [ -z "$SCRIPT_DIR" ] || [ ! -d "${SCRIPT_DIR}/.git" ]; then
-    # Running from curl or outside repo — clone first
-    REPO_DIR="${HOME}/hermes-trueconf-adapter"
-    REPO_URL="https://github.com/ivan-datsenko/hermes-trueconf-adapter.git"
-    BRANCH="beta-v5"
-
-    echo -e "\033[0;36m📦 Cloning TrueConf Adapter (${BRANCH})...\033[0m"
-
-    if [ -d "$REPO_DIR" ]; then
-        if [ "$NON_INTERACTIVE" = "1" ]; then
-            echo "  Recloning (non-interactive mode)..."
-            rm -rf "$REPO_DIR"
-        else
-            echo -e "\033[1;33m⚠ Directory exists: ${REPO_DIR}\033[0m"
-            read -p "  Reclone? (y/N): " rec
-            if [[ "$rec" =~ ^[Yy]$ ]]; then
-                rm -rf "$REPO_DIR"
-            else
-                echo "  Using existing directory."
-            fi
-        fi
-    fi
-
-    if [ ! -d "$REPO_DIR" ]; then
-        if command -v git >/dev/null 2>&1; then
-            git clone -b "$BRANCH" "$REPO_URL" "$REPO_DIR" || {
-                echo -e "\033[0;31m❌ git clone failed. Install git first:\033[0m"
-                echo "   sudo apt install git -y"
-                exit 1
-            }
-        else
-            echo -e "\033[0;31m❌ git not found. Install git first:\033[0m"
-            echo "   sudo apt install git -y"
-            exit 1
-        fi
-    fi
-
-    echo -e "\033[0;32m✅ Repo ready: ${REPO_DIR}\033[0m"
-    echo ""
-    echo "  Running install from cloned repo..."
-    cd "$REPO_DIR"
-    exec bash "${REPO_DIR}/install.sh"
-fi
-
 # ── Auto-detect HERMES_DIR ──────────────────
 if [ -z "$HERMES_DIR" ]; then
-    # Try common paths
     for dir in "$HOME/.hermes/hermes-agent" "/root/.hermes/hermes-agent" "/opt/hermes-agent"; do
         if [ -d "$dir/gateway" ]; then
             HERMES_DIR="$dir"
             break
         fi
     done
-    # Try to find via hermes binary
     if [ -z "$HERMES_DIR" ] && command -v hermes >/dev/null 2>&1; then
         HERMES_BIN=$(command -v hermes)
         while [ -L "$HERMES_BIN" ]; do HERMES_BIN=$(readlink -f "$HERMES_BIN"); done
@@ -112,7 +73,6 @@ fi
 
 VENV_DIR="${HERMES_DIR}/venv"
 PYTHON="${VENV_DIR}/bin/python"
-PIP="${VENV_DIR}/bin/pip"
 ADAPTER_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${HOME}/.hermes/.env"
 PLUGINS_DIR="${HOME}/.hermes/plugins/trueconf-adapter"
@@ -129,7 +89,6 @@ die() {
 }
 
 ask() {
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -ne "${YELLOW}$1${NC}"
     if [ -n "$2" ]; then
         echo -e " ${YELLOW}[$2]${NC}"
@@ -140,7 +99,7 @@ ask() {
 
 echo -e "${GREEN}"
 echo "╔═══════════════════════════════════════════╗"
-echo "║   TrueConf Adapter v2.0.0 — Installer    ║"
+echo "║   TrueConf Adapter v3.0.0 — Installer    ║"
 echo "╚═══════════════════════════════════════════╝"
 echo -e "${NC}"
 echo ""
@@ -151,18 +110,11 @@ echo ""
 echo -e "${YELLOW}⏳ Проверяю Hermes Agent...${NC}"
 
 if [ ! -d "$HERMES_DIR" ]; then
-    die "Hermes Agent не найден: $HERMES_DIR
-
-  Установите Hermes Agent:
-  https://github.com/NousResearch/hermes-agent
-
-  Или: HERMES_DIR=/path bash install.sh"
+    die "Hermes Agent не найден: $HERMES_DIR"
 fi
 
 if [ ! -d "$VENV_DIR" ]; then
-    die "Python venv не найден: $VENV_DIR
-
-  Запустите 'hermes setup' чтобы создать venv."
+    die "Python venv не найден: $VENV_DIR"
 fi
 
 if [ ! -f "$PYTHON" ]; then
@@ -178,28 +130,22 @@ echo ""
 # ═══════════════════════════════════════════
 echo -e "${YELLOW}⏳ Устанавливаю python-trueconf-bot...${NC}"
 
-if [ ! -f "$PIP" ]; then
-    echo "  pip не найден, устанавливаю через ensurepip..."
-    $PYTHON -m ensurepip --upgrade 2>&1 || die "Не удалось установить pip в venv"
+# Use uv if available (Hermes uses uv), else pip
+if command -v uv >/dev/null 2>&1; then
+    UV_PYTHON="$PYTHON"
+    echo "  Устанавливаю через uv..."
+    uv pip install --pre "python-trueconf-bot>=1.2.0" --python "$UV_PYTHON" 2>&1 || {
+        echo -e "${YELLOW}⚠ uv install failed, trying pip...${NC}"
+        $PYTHON -m pip install --pre "python-trueconf-bot>=1.2.0" 2>&1 || die "Не удалось установить python-trueconf-bot"
+    }
+else
+    $PYTHON -m pip install --pre "python-trueconf-bot>=1.2.0" 2>&1 || die "Не удалось установить python-trueconf-bot"
 fi
 
-echo "  Устанавливаю python-trueconf-bot==1.2.0..."
-$PYTHON -m pip install --pre "python-trueconf-bot==1.2.0" 2>&1 || {
-    echo -e "${YELLOW}⚠ v1.2.0 не найдена, пробую последнюю...${NC}"
-    $PYTHON -m pip install "python-trueconf-bot>=1.2.0" 2>&1 || die "Не удалось установить python-trueconf-bot"
-}
-
-echo "  Фикс httpx (бот тянет несовместимую версию)..."
-$PYTHON -m pip install "httpx==0.28.1" 2>&1 || die "Не удалось установить httpx==0.28.1"
-
-if $PYTHON -c "from trueconf import Bot" 2>&1; then
+if $PYTHON -c "from trueconf import Bot" 2>/dev/null; then
     echo -e "${GREEN}✅${NC} python-trueconf-bot установлен"
 else
-    die "Ошибка импорта trueconf.Bot
-
-  Попробуйте вручную:
-  $PYTHON -m pip install --pre 'python-trueconf-bot==1.2.0'
-  $PYTHON -m pip install 'httpx==0.28.1'"
+    die "Ошибка импорта trueconf.Bot"
 fi
 echo ""
 
@@ -236,9 +182,10 @@ echo -e "${YELLOW}⏳ Устанавливаю git hooks...${NC}"
 GIT_HOOKS_DIR="${HERMES_DIR}/.git/hooks"
 
 if [ -d "$GIT_HOOKS_DIR" ]; then
-    cat > "${GIT_HOOKS_DIR}/post-merge" << HOOK
+    cat > "${GIT_HOOKS_DIR}/post-merge" << 'HOOK'
 #!/bin/bash
 # TrueConf Adapter — auto-reapply patches after hermes update
+PLUGINS_DIR="${HOME}/.hermes/plugins/trueconf-adapter"
 if [ -f "${PLUGINS_DIR}/apply_patches.sh" ]; then
     echo "[TrueConf] Re-applying patches after update..."
     bash "${PLUGINS_DIR}/apply_patches.sh" 2>&1 | sed 's/^/  /'
@@ -246,9 +193,10 @@ fi
 HOOK
     chmod +x "${GIT_HOOKS_DIR}/post-merge"
 
-    cat > "${GIT_HOOKS_DIR}/post-checkout" << HOOK
+    cat > "${GIT_HOOKS_DIR}/post-checkout" << 'HOOK'
 #!/bin/bash
 # TrueConf Adapter — auto-reapply patches after branch switch
+PLUGINS_DIR="${HOME}/.hermes/plugins/trueconf-adapter"
 if [ -f "${PLUGINS_DIR}/apply_patches.sh" ]; then
     echo "[TrueConf] Re-applying patches after checkout..."
     bash "${PLUGINS_DIR}/apply_patches.sh" 2>&1 | sed 's/^/  /'
@@ -293,30 +241,33 @@ echo ""
 SKIP_CONFIG=false
 if grep -q "^TRUECONF_SERVER=" "$ENV_FILE" 2>/dev/null; then
     echo -e "${GREEN}✅${NC} Настройки TrueConf уже есть в .env"
-    ask "Перезаписать?" "[y/N]"
-    read -r -p "  Введите: " OVERWRITE
-    if [[ ! "$OVERWRITE" =~ ^[Yy]$ ]]; then
-        echo ""
-        echo -e "${GREEN}✅${NC} Сохраняю текущие настройки"
+    if [ "$NON_INTERACTIVE" != "1" ]; then
+        ask "Перезаписать?" "[y/N]"
+        read -r -p "  Введите: " OVERWRITE
+        if [[ ! "$OVERWRITE" =~ ^[Yy]$ ]]; then
+            echo ""
+            echo -e "${GREEN}✅${NC} Сохраняю текущие настройки"
+            SKIP_CONFIG=true
+        fi
+    else
+        echo -e "${GREEN}✅${NC} Non-interactive: использую существующие настройки"
         SKIP_CONFIG=true
     fi
 fi
 
 if [ "$SKIP_CONFIG" != "true" ]; then
-    if [ "$NON_INTERACTIVE" = "1" ] && [ -n "$TRUECONF_SERVER" ] && [ -n "$TRUECONF_USERNAME" ] && [ -n "$TRUECONF_PASSWORD" ]; then
+    if [ "$NON_INTERACTIVE" = "1" ]; then
         # Non-interactive: read from env vars
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${GREEN}🎯 Настройка TrueConf (non-interactive)${NC}"
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo ""
-        echo "  Server:   $TRUECONF_SERVER"
-        echo "  Username: $TRUECONF_USERNAME"
-        echo "  Password: ***"
-        USE_SSL="${TRUECONF_USE_SSL:-y}"
+        TRUECONF_SERVER="${TRUECONF_SERVER}"
+        TRUECONF_USERNAME="${TRUECONF_USERNAME}"
+        TRUECONF_PASSWORD="${TRUECONF_PASSWORD}"
+        USE_SSL="${TRUECONF_USE_SSL:-true}"
+        VERIFY_SSL="${TRUECONF_VERIFY_SSL:-false}"
         ALLOW_ALL_USERS="${TRUECONF_ALLOW_ALL_USERS:-true}"
         ALLOWED_USERS="${TRUECONF_ALLOWED_USERS:-}"
     else
-        ask "Адрес сервера TrueConf (например: video.company.com):"
+        # Interactive: ask user
+        ask "Адрес сервера TrueConf (например: video.company.com или 10.110.2.240):"
         read -r -p "  Введите: " TRUECONF_SERVER
         [ -z "$TRUECONF_SERVER" ] && die "Адрес сервера не может быть пустым"
         echo ""
@@ -326,7 +277,6 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         [ -z "$TRUECONF_USERNAME" ] && die "Логин бота не может быть пустым"
         echo ""
 
-        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         ask "Пароль бота:"
         read -r -s -p "  Введите: " TRUECONF_PASSWORD
         echo ""
@@ -336,6 +286,19 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         ask "Использовать SSL/HTTPS?" "[Y/n]"
         read -r -p "  Введите: " USE_SSL
         USE_SSL="${USE_SSL:-y}"
+        echo ""
+
+        # ── SSL certificate verification ──
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}🔒 Проверка SSL сертификата${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        echo "  Если TrueConf Server использует самоподписанный сертификат"
+        echo "  (например, внутренний сервер), проверку нужно отключить."
+        echo ""
+        ask "Проверять SSL сертификат?" "[y/N]"
+        read -r -p "  Введите: " VERIFY_SSL
+        VERIFY_SSL="${VERIFY_SSL:-n}"
         echo ""
 
         # ── Контроль доступа ──
@@ -378,7 +341,7 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         echo "TRUECONF_USERNAME=${TRUECONF_USERNAME}"
         echo "TRUECONF_PASSWORD=${TRUECONF_PASSWORD}"
         echo "TRUECONF_USE_SSL=$(echo "$USE_SSL" | tr '[:upper:]' '[:lower:]')"
-        echo "TRUECONF_VERIFY_SSL=false"
+        echo "TRUECONF_VERIFY_SSL=$(echo "$VERIFY_SSL" | tr '[:upper:]' '[:lower:]')"
         echo "TRUECONF_ALLOW_ALL_USERS=${ALLOW_ALL_USERS}"
         echo "TRUECONF_ALLOWED_USERS=${ALLOWED_USERS:-}"
     } >> "$ENV_FILE"
@@ -403,7 +366,7 @@ echo "   hermes gateway stop && hermes gateway start"
 echo "   (НЕ используйте 'restart' — может зависнуть)"
 echo ""
 echo "2. Проверьте подключение:"
-echo "   grep -i trueconf ~/.hermes/logs/agent.log | tail -10"
+echo "   hermes gateway status"
 echo ""
 echo "3. Проверьте что бот онлайн в TrueConf клиенте"
 echo ""
@@ -412,11 +375,5 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${GREEN}💡 После hermes update патчи применятся автоматически${NC}"
 echo -e "${GREEN}💡 Для ручного патча: bash ${PLUGINS_DIR}/apply_patches.sh${NC}"
-echo ""
-echo -e "${GREEN}💡 Неинтерактивная установка (для автоматизации):${NC}"
-echo "   export TRUECONF_SERVER=video.example.com"
-echo "   export TRUECONF_USERNAME=bot_name"
-echo "   export TRUECONF_PASSWORD=secret"
-echo "   curl -fsSL https://raw.githubusercontent.com/ivan-datsenko/hermes-trueconf-adapter/beta-v5/install.sh | bash"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
