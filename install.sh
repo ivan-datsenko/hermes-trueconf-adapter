@@ -192,6 +192,11 @@ cp "${ADAPTER_DIR}/gateway/platforms/trueconf.py" "${PLUGINS_DIR}/gateway/platfo
 cp "${ADAPTER_DIR}/apply_patches.sh" "${PLUGINS_DIR}/apply_patches.sh"
 chmod +x "${PLUGINS_DIR}/apply_patches.sh"
 
+# Copy patch_run.py if it exists (used by apply_patches.sh for dynamic insertion)
+if [ -f "${ADAPTER_DIR}/patch_run.py" ]; then
+    cp "${ADAPTER_DIR}/patch_run.py" "${PLUGINS_DIR}/patch_run.py"
+fi
+
 if [ -d "${ADAPTER_DIR}/lib_patches" ]; then
     cp "${ADAPTER_DIR}/lib_patches/"*.py "${PLUGINS_DIR}/lib_patches/" 2>/dev/null || true
 fi
