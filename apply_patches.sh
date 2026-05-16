@@ -362,7 +362,8 @@ if grep -q 'TrueConfAdapter' "$RUN_PY" 2>/dev/null; then
 else
     log_patch "Adding TrueConfAdapter creation..."
     python3 - "$RUN_PY" << 'PYEOF'
-import sys
+import sys, re
+
 path = sys.argv[1]
 with open(path, 'r') as f:
     content = f.read()
@@ -370,22 +371,68 @@ with open(path, 'r') as f:
 if 'TrueConfAdapter' in content:
     sys.exit(0)
 
-# Insert after QQAdapter block (before YuanbaoAdapter)
-marker = '            return QQAdapter(config)\n\n        elif platform == Platform.YUANBAO:'
-replacement = '''            return QQAdapter(config)
+# Find the _create_adapter function and insert TrueConf before its final return None
+# Strategy: find the last "elif platform == Platform.XXX:" block before "return None"
+# that is indented at the same level as the if/elif chain (8 spaces = 2 levels)
 
-        elif platform == Platform.TRUECONF:
-            from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
-            if not check_trueconf_requirements():
-                logger.warning("TrueConf: python-trueconf-bot not installed. Run: pip install python-trueconf-bot")
-                return None
-            return TrueConfAdapter(config)
+# Pattern: find all "elif platform == Platform.XXX:" lines and get the last one
+# Then find the "return None" that follows it (at the same indent level)
+lines = content.split('\n')
 
-        return None'''
+# Find the start of _create_adapter function
+func_start = None
+for i, line in enumerate(lines):
+    if 'def _create_adapter(' in line:
+        func_start = i
+        break
 
-content = content.replace(marker, replacement, 1)
+if func_start is None:
+    print("ERROR: _create_adapter function not found")
+    sys.exit(1)
+
+# Find the last "elif platform == Platform.XXX:" in this function
+# and the "return None" that follows it
+last_elif_idx = None
+return_none_idx = None
+
+for i in range(func_start, len(lines)):
+    line = lines[i]
+    # Stop at next method/function definition at class level
+    if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
+        break
+    if 'elif platform == Platform.' in line and line.strip().startswith('elif'):
+        last_elif_idx = i
+    if last_elif_idx is not None and line.strip() == 'return None' and line.startswith('        '):
+        return_none_idx = i
+        break
+
+if last_elif_idx is None:
+    print("ERROR: No elif platform == found in _create_adapter")
+    sys.exit(1)
+
+if return_none_idx is None:
+    print("ERROR: No return None found after last elif in _create_adapter")
+    sys.exit(1)
+
+# Get the indent from the last elif line
+elif_indent = len(lines[last_elif_idx]) - len(lines[last_elif_idx].lstrip())
+indent = ' ' * elif_indent
+
+# Build the TrueConf block with matching indent
+trueconf_block = f'''
+{indent}elif platform == Platform.TRUECONF:
+{indent}    from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
+{indent}    if not check_trueconf_requirements():
+{indent}        logger.warning("TrueConf: python-trueconf-bot not installed. Run: pip install python-trueconf-bot")
+{indent}        return None
+{indent}    return TrueConfAdapter(config)
+'''
+
+# Insert before the return None
+lines.insert(return_none_idx, trueconf_block)
+
 with open(path, 'w') as f:
-    f.write(content)
+    f.write('\n'.join(lines))
 print("OK")
 PYEOF
     log_ok "TrueConfAdapter creation added"
