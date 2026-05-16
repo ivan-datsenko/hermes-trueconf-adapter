@@ -21,6 +21,20 @@ set -e
 # Set TRUECONF_SERVER, TRUECONF_USERNAME, TRUECONF_PASSWORD to auto-configure
 NON_INTERACTIVE="${YES:-0}"
 
+# ── Restore stdin from terminal for interactive mode ──
+# When run via curl | bash, stdin is a pipe. Reattach to the controlling
+# terminal so that read prompts work. If no terminal is available (e.g.
+# pure non-interactive CI), skip — the user must set YES=1 + env vars.
+if [ "$NON_INTERACTIVE" != "1" ] && [ ! -t 0 ]; then
+    if [ -e /dev/tty ]; then
+        exec </dev/tty
+    else
+        echo "⚠ No terminal available — switching to non-interactive mode."
+        echo "  Set TRUECONF_SERVER, TRUECONF_USERNAME, TRUECONF_PASSWORD env vars."
+        NON_INTERACTIVE=1
+    fi
+fi
+
 # ── Clone repo if running from curl (no local git repo) ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
 if [ -z "$SCRIPT_DIR" ] || [ ! -d "${SCRIPT_DIR}/.git" ]; then
@@ -280,7 +294,7 @@ SKIP_CONFIG=false
 if grep -q "^TRUECONF_SERVER=" "$ENV_FILE" 2>/dev/null; then
     echo -e "${GREEN}✅${NC} Настройки TrueConf уже есть в .env"
     ask "Перезаписать?" "[y/N]"
-    read -r -p "  Введите: " OVERWRITE < /dev/tty
+    read -r -p "  Введите: " OVERWRITE
     if [[ ! "$OVERWRITE" =~ ^[Yy]$ ]]; then
         echo ""
         echo -e "${GREEN}✅${NC} Сохраняю текущие настройки"
@@ -303,24 +317,24 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         ALLOWED_USERS="${TRUECONF_ALLOWED_USERS:-}"
     else
         ask "Адрес сервера TrueConf (например: video.company.com):"
-        read -r -p "  Введите: " TRUECONF_SERVER < /dev/tty
+        read -r -p "  Введите: " TRUECONF_SERVER
         [ -z "$TRUECONF_SERVER" ] && die "Адрес сервера не может быть пустым"
         echo ""
 
         ask "Логин бота (например: bot_username):"
-        read -r -p "  Введите: " TRUECONF_USERNAME < /dev/tty
+        read -r -p "  Введите: " TRUECONF_USERNAME
         [ -z "$TRUECONF_USERNAME" ] && die "Логин бота не может быть пустым"
         echo ""
 
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         ask "Пароль бота:"
-        read -r -s -p "  Введите: " TRUECONF_PASSWORD < /dev/tty
+        read -r -s -p "  Введите: " TRUECONF_PASSWORD
         echo ""
         [ -z "$TRUECONF_PASSWORD" ] && die "Пароль бота не может быть пустым"
         echo ""
 
         ask "Использовать SSL/HTTPS?" "[Y/n]"
-        read -r -p "  Введите: " USE_SSL < /dev/tty
+        read -r -p "  Введите: " USE_SSL
         USE_SSL="${USE_SSL:-y}"
         echo ""
 
@@ -330,12 +344,12 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
         ask "Разрешить всем пользователям?" "[Y/n]"
-        read -r -p "  Введите: " ALLOW_ALL < /dev/tty
+        read -r -p "  Введите: " ALLOW_ALL
 
         if [[ "$ALLOW_ALL" =~ ^[Nn]$ ]]; then
             echo ""
             ask "Список разрешённых (TrueConf ID через запятую):"
-            read -r -p "  Введите: " ALLOWED_USERS < /dev/tty
+            read -r -p "  Введите: " ALLOWED_USERS
             ALLOW_ALL_USERS="false"
         else
             ALLOW_ALL_USERS="true"
