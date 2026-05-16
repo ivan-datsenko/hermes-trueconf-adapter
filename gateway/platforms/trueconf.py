@@ -294,7 +294,7 @@ class TrueConfAdapter(BasePlatformAdapter):
         # Connection options
         self._port: int = int(config.extra.get("port", 443))
         self._use_ssl: bool = self._coerce_bool_extra("use_ssl", True)
-        self._verify_ssl: bool = self._coerce_bool_extra("verify_ssl", True)
+        self._verify_ssl: bool = self._coerce_bool_extra("verify_ssl", False)
         self._receive_unread: bool = self._coerce_bool_extra("receive_unread", False)
 
         # Library objects
