@@ -361,94 +361,13 @@ if grep -q 'TrueConfAdapter' "$RUN_PY" 2>/dev/null; then
     log_skip "TrueConfAdapter in run.py"
 else
     log_patch "Adding TrueConfAdapter creation..."
-    python3 - "$RUN_PY" << 'PYEOF'
-import sys, re
-
-path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
-
-if 'TrueConfAdapter' in content:
-    sys.exit(0)
-
-# Find the _create_adapter function and insert TrueConf before its final return None
-# Strategy: find the last "elif platform == Platform.XXX:" block before "return None"
-# that is indented at the same level as the if/elif chain (8 spaces = 2 levels)
-
-# Pattern: find all "elif platform == Platform.XXX:" lines and get the last one
-# Then find the "return None" that follows it (at the same indent level)
-lines = content.split('\n')
-
-# Find the start of _create_adapter function
-func_start = None
-for i, line in enumerate(lines):
-    if 'def _create_adapter(' in line:
-        func_start = i
-        break
-
-if func_start is None:
-    print("ERROR: _create_adapter function not found")
-    sys.exit(1)
-
-# Find the last elif platform == line in _create_adapter
-    last_elif_idx = None
-    for i in range(func_start, len(lines)):
-        line = lines[i]
-        if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
-            break
-        if 'elif platform == Platform.' in line and line.strip().startswith('elif'):
-            last_elif_idx = i
-            print(f"DEBUG: Found elif at line {i}")
-
-    print(f"DEBUG: last_elif_idx={last_elif_idx}")
-    if last_elif_idx is None:
-        print("ERROR: No elif platform == found in _create_adapter")
-        print(f"DEBUG: func_start={func_start}, total lines={len(lines)}")
-        # Print lines around func_start to debug
-        for j in range(func_start, min(func_start + 20, len(lines))):
-            print(f"  {j}: {repr(lines[j][:80])}")
-        sys.exit(1)
-
-    # Find the end of the last elif block: first empty line or next elif/return at same indent
-    insert_idx = None
-    for i in range(last_elif_idx + 1, len(lines)):
-        line = lines[i]
-        # Stop at next method/function definition
-        if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
-            insert_idx = i
-            break
-        # Stop at empty line after the elif body (8-space indent level)
-        if line.strip() == '' and i > last_elif_idx + 1:
-            insert_idx = i
-            break
-
-    if insert_idx is None:
-        print("ERROR: Could not find insertion point after last elif block")
-        sys.exit(1)
-
-# Get the indent from the last elif line
-elif_indent = len(lines[last_elif_idx]) - len(lines[last_elif_idx].lstrip())
-indent = ' ' * elif_indent
-
-# Build the TrueConf block with matching indent
-trueconf_block = f'''
-{indent}elif platform == Platform.TRUECONF:
-{indent}    from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
-{indent}    if not check_trueconf_requirements():
-{indent}        logger.warning("TrueConf: python-trueconf-bot not installed. Run: pip install python-trueconf-bot")
-{indent}        return None
-{indent}    return TrueConfAdapter(config)
-'''
-
-# Insert before the return None
-lines.insert(insert_idx, trueconf_block)
-
-with open(path, 'w') as f:
-    f.write('\n'.join(lines))
-print("OK")
-PYEOF
-    log_ok "TrueConfAdapter creation added"
-    PATCHED=$((PATCHED + 1))
+    python3 "${ADAPTER_DIR}/patch_run.py" "$RUN_PY"
+    if [ $? -eq 0 ]; then
+        log_ok "TrueConfAdapter creation added"
+        PATCHED=$((PATCHED + 1))
+    else
+        log_patch "TrueConfAdapter creation failed — check errors above"
+    fi
 fi
 
 # 3b. run.py — Authorization maps
