@@ -407,18 +407,25 @@ if last_elif_idx is None:
     print("ERROR: No elif platform == found in _create_adapter")
     sys.exit(1)
 
-# Now find the function's final 'return None' after the LAST elif
-    # The final return None has the same indent as the elif chain (8 spaces)
-    # NOT the return None inside nested if blocks (12+ spaces)
-    elif_indent_str = '        '  # 8 spaces = same level as elif
+# Now find the end of the last elif block (the return statement)
+    # We need to insert TrueConf AFTER the last elif block completes
+    last_elif_block_end = None
     for i in range(last_elif_idx + 1, len(lines)):
         line = lines[i]
         if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
             break
-        # Match return None at the same indent level as elif (8 spaces)
-        if line == f'{elif_indent_str}return None\n':
-            return_none_idx = i
+        # Find the return statement at the end of the elif block
+        # It's at 12+ spaces indent (inside the elif body)
+        if line.strip().startswith('return ') and line.startswith('            '):
+            last_elif_block_end = i
             break
+    
+    if last_elif_block_end is None:
+        print("ERROR: No return statement found after last elif block")
+        sys.exit(1)
+    
+    # Insert TrueConf after the last elif block's return statement
+    return_none_idx = last_elif_block_end + 1
 
 if return_none_idx is None:
     print("ERROR: No return None found after last elif in _create_adapter")
