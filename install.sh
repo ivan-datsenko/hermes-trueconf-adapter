@@ -16,6 +16,16 @@
 
 set -e
 
+# ── Non-interactive mode: read from env vars ──
+# Set YES=1 to skip all interactive prompts (auto-yes)
+# Set TRUECONF_SERVER, TRUECONF_USERNAME, TRUECONF_PASSWORD to auto-configure
+NON_INTERACTIVE="${YES:-0}"
+
+# Auto-detect if stdin is not a TTY (piped from curl)
+if [ ! -t 0 ]; then
+    NON_INTERACTIVE=1
+fi
+
 # ── Clone repo if running from curl (no local git repo) ──
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
 if [ -z "$SCRIPT_DIR" ] || [ ! -d "${SCRIPT_DIR}/.git" ]; then
@@ -27,12 +37,17 @@ if [ -z "$SCRIPT_DIR" ] || [ ! -d "${SCRIPT_DIR}/.git" ]; then
     echo -e "\033[0;36m📦 Cloning TrueConf Adapter (${BRANCH})...\033[0m"
 
     if [ -d "$REPO_DIR" ]; then
-        echo -e "\033[1;33m⚠ Directory exists: ${REPO_DIR}\033[0m"
-        read -p "  Reclone? (y/N): " rec
-        if [[ "$rec" =~ ^[Yy]$ ]]; then
+        if [ "$NON_INTERACTIVE" = "1" ]; then
+            echo "  Recloning (non-interactive mode)..."
             rm -rf "$REPO_DIR"
         else
-            echo "  Using existing directory."
+            echo -e "\033[1;33m⚠ Directory exists: ${REPO_DIR}\033[0m"
+            read -p "  Reclone? (y/N): " rec
+            if [[ "$rec" =~ ^[Yy]$ ]]; then
+                rm -rf "$REPO_DIR"
+            else
+                echo "  Using existing directory."
+            fi
         fi
     fi
 
@@ -279,46 +294,60 @@ if grep -q "^TRUECONF_SERVER=" "$ENV_FILE" 2>/dev/null; then
 fi
 
 if [ "$SKIP_CONFIG" != "true" ]; then
-    ask "Адрес сервера TrueConf (например: video.company.com):"
-    read -r -p "  Введите: " TRUECONF_SERVER
-    [ -z "$TRUECONF_SERVER" ] && die "Адрес сервера не может быть пустым"
-    echo ""
-
-    ask "Логин бота (например: bot_username):"
-    read -r -p "  Введите: " TRUECONF_USERNAME
-    [ -z "$TRUECONF_USERNAME" ] && die "Логин бота не может быть пустым"
-    echo ""
-
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    ask "Пароль бота:"
-    read -r -s -p "  Введите: " TRUECONF_PASSWORD
-    echo ""
-    [ -z "$TRUECONF_PASSWORD" ] && die "Пароль бота не может быть пустым"
-    echo ""
-
-    ask "Использовать SSL/HTTPS?" "[Y/n]"
-    read -r -p "  Введите: " USE_SSL
-    USE_SSL="${USE_SSL:-y}"
-    echo ""
-
-    # ── Контроль доступа ──
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}🔐 Контроль доступа${NC}"
-    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
-    ask "Разрешить всем пользователям?" "[Y/n]"
-    read -r -p "  Введите: " ALLOW_ALL
-
-    if [[ "$ALLOW_ALL" =~ ^[Nn]$ ]]; then
+    if [ "$NON_INTERACTIVE" = "1" ] && [ -n "$TRUECONF_SERVER" ] && [ -n "$TRUECONF_USERNAME" ] && [ -n "$TRUECONF_PASSWORD" ]; then
+        # Non-interactive: read from env vars
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}🎯 Настройка TrueConf (non-interactive)${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo ""
-        ask "Список разрешённых (TrueConf ID через запятую):"
-        read -r -p "  Введите: " ALLOWED_USERS
-        ALLOW_ALL_USERS="false"
+        echo "  Server:   $TRUECONF_SERVER"
+        echo "  Username: $TRUECONF_USERNAME"
+        echo "  Password: ***"
+        USE_SSL="${TRUECONF_USE_SSL:-y}"
+        ALLOW_ALL_USERS="${TRUECONF_ALLOW_ALL_USERS:-true}"
+        ALLOWED_USERS="${TRUECONF_ALLOWED_USERS:-}"
     else
-        ALLOW_ALL_USERS="true"
-        ALLOWED_USERS=""
+        ask "Адрес сервера TrueConf (например: video.company.com):"
+        read -r -p "  Введите: " TRUECONF_SERVER
+        [ -z "$TRUECONF_SERVER" ] && die "Адрес сервера не может быть пустым"
+        echo ""
+
+        ask "Логин бота (например: bot_username):"
+        read -r -p "  Введите: " TRUECONF_USERNAME
+        [ -z "$TRUECONF_USERNAME" ] && die "Логин бота не может быть пустым"
+        echo ""
+
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        ask "Пароль бота:"
+        read -r -s -p "  Введите: " TRUECONF_PASSWORD
+        echo ""
+        [ -z "$TRUECONF_PASSWORD" ] && die "Пароль бота не может быть пустым"
+        echo ""
+
+        ask "Использовать SSL/HTTPS?" "[Y/n]"
+        read -r -p "  Введите: " USE_SSL
+        USE_SSL="${USE_SSL:-y}"
+        echo ""
+
+        # ── Контроль доступа ──
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}🔐 Контроль доступа${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+        ask "Разрешить всем пользователям?" "[Y/n]"
+        read -r -p "  Введите: " ALLOW_ALL
+
+        if [[ "$ALLOW_ALL" =~ ^[Nn]$ ]]; then
+            echo ""
+            ask "Список разрешённых (TrueConf ID через запятую):"
+            read -r -p "  Введите: " ALLOWED_USERS
+            ALLOW_ALL_USERS="false"
+        else
+            ALLOW_ALL_USERS="true"
+            ALLOWED_USERS=""
+        fi
+        echo ""
     fi
-    echo ""
 
     # ── Запись в .env ──
     echo -e "${YELLOW}⏳ Сохраняю настройки...${NC}"
@@ -374,5 +403,11 @@ echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${GREEN}💡 После hermes update патчи применятся автоматически${NC}"
 echo -e "${GREEN}💡 Для ручного патча: bash ${PLUGINS_DIR}/apply_patches.sh${NC}"
+echo ""
+echo -e "${GREEN}💡 Неинтерактивная установка (для автоматизации):${NC}"
+echo "   export TRUECONF_SERVER=video.example.com"
+echo "   export TRUECONF_USERNAME=bot_name"
+echo "   export TRUECONF_PASSWORD=secret"
+echo "   curl -fsSL https://raw.githubusercontent.com/ivan-datsenko/hermes-trueconf-adapter/beta-v5/install.sh | bash"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
