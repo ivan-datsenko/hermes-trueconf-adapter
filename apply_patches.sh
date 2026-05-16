@@ -391,7 +391,7 @@ if func_start is None:
     sys.exit(1)
 
 # Find the last "elif platform == Platform.XXX:" in this function
-# and the "return None" that follows it
+# and the "return None" that follows it (the function's final return)
 last_elif_idx = None
 return_none_idx = None
 
@@ -402,13 +402,19 @@ for i in range(func_start, len(lines)):
         break
     if 'elif platform == Platform.' in line and line.strip().startswith('elif'):
         last_elif_idx = i
-    if last_elif_idx is not None and line.strip() == 'return None' and line.startswith('        '):
-        return_none_idx = i
-        break
 
 if last_elif_idx is None:
     print("ERROR: No elif platform == found in _create_adapter")
     sys.exit(1)
+
+# Now find the first 'return None' after the LAST elif
+for i in range(last_elif_idx + 1, len(lines)):
+    line = lines[i]
+    if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
+        break
+    if line.strip() == 'return None' and line.startswith('        '):
+        return_none_idx = i
+        break
 
 if return_none_idx is None:
     print("ERROR: No return None found after last elif in _create_adapter")
