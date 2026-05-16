@@ -371,7 +371,7 @@ if 'TrueConfAdapter' in content:
     sys.exit(0)
 
 # Insert after QQAdapter block (before YuanbaoAdapter)
-marker = '            return QQAdapter(config)\\n\\n        elif platform == Platform.YUANBAO:'
+marker = '            return QQAdapter(config)\n\n        elif platform == Platform.YUANBAO:'
 replacement = '''            return QQAdapter(config)
 
         elif platform == Platform.TRUECONF:
