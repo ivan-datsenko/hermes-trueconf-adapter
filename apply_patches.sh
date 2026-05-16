@@ -427,10 +427,6 @@ if last_elif_idx is None:
     # Insert TrueConf after the last elif block's return statement
     return_none_idx = last_elif_block_end + 1
 
-if return_none_idx is None:
-    print("ERROR: No return None found after last elif in _create_adapter")
-    sys.exit(1)
-
 # Get the indent from the last elif line
 elif_indent = len(lines[last_elif_idx]) - len(lines[last_elif_idx].lstrip())
 indent = ' ' * elif_indent
