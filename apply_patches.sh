@@ -390,49 +390,35 @@ if func_start is None:
     print("ERROR: _create_adapter function not found")
     sys.exit(1)
 
-# Find the last "elif platform == Platform.XXX:" in this function
-# and the "return None" that follows it (the function's final return)
-last_elif_idx = None
-return_none_idx = None
-
-for i in range(func_start, len(lines)):
-    line = lines[i]
-    # Stop at next method/function definition at class level
-    if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
-        break
-    if 'elif platform == Platform.' in line and line.strip().startswith('elif'):
-        last_elif_idx = i
-
-if last_elif_idx is None:
-    print("ERROR: No elif platform == found in _create_adapter")
-    sys.exit(1)
-
-# Now find the end of the last elif block (the return statement)
-    # We need to insert TrueConf AFTER the last elif block completes
-    last_elif_block_end = None
-    for i in range(last_elif_idx + 1, len(lines)):
+# Find the last elif platform == line in _create_adapter
+    last_elif_idx = None
+    for i in range(func_start, len(lines)):
         line = lines[i]
         if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
             break
-        # Find the return statement at the end of the elif block
-        # It's at 12+ spaces indent (inside the elif body)
-        if line.strip().startswith('return ') and line.startswith('            '):
-            last_elif_block_end = i
-            print(f"DEBUG: Found return at line {i}: {line.strip()[:60]}")
-            break
-    
-    if last_elif_block_end is None:
-        print(f"DEBUG: last_elif_idx={last_elif_idx}, func_start={func_start}")
-        print(f"DEBUG: Lines after last elif:")
-        for j in range(last_elif_idx, min(last_elif_idx + 10, len(lines))):
-            print(f"  {j}: {repr(lines[j])}")
-    
-    if last_elif_block_end is None:
-        print("ERROR: No return statement found after last elif block")
+        if 'elif platform == Platform.' in line and line.strip().startswith('elif'):
+            last_elif_idx = i
+
+    if last_elif_idx is None:
+        print("ERROR: No elif platform == found in _create_adapter")
         sys.exit(1)
-    
-    # Insert TrueConf after the last elif block's return statement
-    return_none_idx = last_elif_block_end + 1
+
+    # Find the end of the last elif block: first empty line or next elif/return at same indent
+    insert_idx = None
+    for i in range(last_elif_idx + 1, len(lines)):
+        line = lines[i]
+        # Stop at next method/function definition
+        if i > func_start and line.strip() and not line.startswith(' ' * 12) and line.startswith('    def '):
+            insert_idx = i
+            break
+        # Stop at empty line after the elif body (8-space indent level)
+        if line.strip() == '' and i > last_elif_idx + 1:
+            insert_idx = i
+            break
+
+    if insert_idx is None:
+        print("ERROR: Could not find insertion point after last elif block")
+        sys.exit(1)
 
 # Get the indent from the last elif line
 elif_indent = len(lines[last_elif_idx]) - len(lines[last_elif_idx].lstrip())
@@ -449,7 +435,7 @@ trueconf_block = f'''
 '''
 
 # Insert before the return None
-lines.insert(return_none_idx, trueconf_block)
+lines.insert(insert_idx, trueconf_block)
 
 with open(path, 'w') as f:
     f.write('\n'.join(lines))
