@@ -77,6 +77,37 @@ ADAPTER_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENV_FILE="${HOME}/.hermes/.env"
 PLUGINS_DIR="${HOME}/.hermes/plugins/trueconf-adapter"
 
+# ── Auto-clone if running from curl (no local repo) ──
+if [ ! -f "${ADAPTER_DIR}/gateway/platforms/trueconf.py" ]; then
+    REPO_DIR="${HOME}/hermes-trueconf-adapter"
+    REPO_URL="https://github.com/ivan-datsenko/hermes-trueconf-adapter.git"
+    BRANCH="beta-v5"
+
+    echo -e "${CYAN}📦 Downloading TrueConf Adapter (${BRANCH})...${NC}"
+
+    if [ -d "$REPO_DIR" ] && [ "$NON_INTERACTIVE" = "1" ]; then
+        rm -rf "$REPO_DIR"
+    fi
+
+    if [ ! -d "$REPO_DIR" ]; then
+        if command -v git >/dev/null 2>&1; then
+            git clone -b "$BRANCH" "$REPO_URL" "$REPO_DIR" 2>&1 || {
+                echo -e "${RED}❌ git clone failed. Install git first:${NC}"
+                echo "   sudo apt install git -y"
+                exit 1
+            }
+        else
+            echo -e "${RED}❌ git not found. Install git first:${NC}"
+            echo "   sudo apt install git -y"
+            exit 1
+        fi
+    fi
+
+    ADAPTER_DIR="$REPO_DIR"
+    echo -e "${GREEN}✅ Repo ready: ${ADAPTER_DIR}${NC}"
+    echo ""
+fi
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
