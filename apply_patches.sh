@@ -418,7 +418,14 @@ if last_elif_idx is None:
         # It's at 12+ spaces indent (inside the elif body)
         if line.strip().startswith('return ') and line.startswith('            '):
             last_elif_block_end = i
+            print(f"DEBUG: Found return at line {i}: {line.strip()[:60]}")
             break
+    
+    if last_elif_block_end is None:
+        print(f"DEBUG: last_elif_idx={last_elif_idx}, func_start={func_start}")
+        print(f"DEBUG: Lines after last elif:")
+        for j in range(last_elif_idx, min(last_elif_idx + 10, len(lines))):
+            print(f"  {j}: {repr(lines[j])}")
     
     if last_elif_block_end is None:
         print("ERROR: No return statement found after last elif block")
