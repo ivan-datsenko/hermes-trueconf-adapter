@@ -7,7 +7,7 @@
 #     cd ~/hermes-trueconf-adapter && bash install.sh
 #
 #   Option 2 — one-liner on clean machine:
-#     curl -fsSL https://raw.githubusercontent.com/ivan-datsenko/hermes-trueconf-adapter/beta-v5/install.sh | bash
+#     curl -fsSL https://raw.githubusercontent.com/ivan-datsenko/hermes-trueconf-adapter/beta-v6/install.sh | bash
 #
 #   Option 3 — non-interactive (set env vars first):
 #     export TRUECONF_SERVER=10.110.2.240
@@ -81,7 +81,7 @@ PLUGINS_DIR="${HOME}/.hermes/plugins/trueconf-adapter"
 if [ ! -f "${ADAPTER_DIR}/gateway/platforms/trueconf.py" ]; then
     REPO_DIR="${HOME}/hermes-trueconf-adapter"
     REPO_URL="https://github.com/ivan-datsenko/hermes-trueconf-adapter.git"
-    BRANCH="beta-v5"
+    BRANCH="beta-v6"
 
     echo -e "${CYAN}📦 Downloading TrueConf Adapter (${BRANCH})...${NC}"
 
