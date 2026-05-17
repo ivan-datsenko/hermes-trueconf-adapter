@@ -689,6 +689,150 @@ PYEOF
 fi
 
 # ───────────────────────────────────────────
+# 9. tools/send_message_tool.py — add _send_trueconf function
+# ───────────────────────────────────────────
+SEND_MSG_TOOL="${HERMES_DIR}/tools/send_message_tool.py"
+
+if [ -f "$SEND_MSG_TOOL" ]; then
+    SEND_MSG_PATCHED=0
+
+    # 9a. Check if _send_trueconf already exists
+    if grep -q 'async def _send_trueconf' "$SEND_MSG_TOOL" 2>/dev/null; then
+        log_skip "_send_trueconf function"
+    else
+        log_patch "Adding _send_trueconf function to send_message_tool.py..."
+        python3 - "$SEND_MSG_TOOL" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if 'async def _send_trueconf' in content:
+    sys.exit(0)
+
+# Find the marker: "# --- Registry ---"
+marker = '# --- Registry ---'
+if marker not in content:
+    print("SKIP: Registry marker not found")
+    sys.exit(0)
+
+trueconf_func = '''
+async def _send_trueconf(extra, chat_id, message, media_files=None):
+    """Send via TrueConf using the adapter's WebSocket send pipeline."""
+    try:
+        from gateway.platforms.trueconf import TrueConfAdapter, check_trueconf_requirements
+        if not check_trueconf_requirements():
+            return {"error": "TrueConf requirements not met. Need python-trueconf-bot."}
+    except ImportError:
+        return {"error": "TrueConf adapter not available."}
+
+    try:
+        from gateway.config import PlatformConfig
+        pconfig = PlatformConfig(extra=extra)
+        adapter = TrueConfAdapter(pconfig)
+        connected = await adapter.connect()
+        if not connected:
+            return {"error": f"TrueConf: failed to connect - {adapter.fatal_error_message or 'unknown error'}"}
+        try:
+            result = await adapter.send(chat_id, message)
+            if not result.success:
+                return {"error": f"TrueConf send failed: {result.error}"}
+
+            # Send media files if any
+            if media_files:
+                for media_item in media_files:
+                    try:
+                        import os
+                        if isinstance(media_item, tuple):
+                            media_path = media_item[0]
+                        else:
+                            media_path = media_item
+                        ext = os.path.splitext(media_path)[1].lower()
+                        _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+                        if ext in _IMAGE_EXTS:
+                            await adapter.send_image_file(chat_id, media_path)
+                        else:
+                            await adapter.send_document(chat_id, media_path)
+                    except Exception as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error("[TrueConf] Failed to send media %s: %s", media_path, e)
+
+            return {"success": True, "platform": "trueconf", "chat_id": chat_id, "message_id": result.message_id}
+        finally:
+            await adapter.disconnect()
+    except Exception as e:
+        return {"error": f"TrueConf send failed: {e}"}
+
+
+'''
+
+content = content.replace(marker, trueconf_func + marker, 1)
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "_send_trueconf function added"
+            SEND_MSG_PATCHED=$((SEND_MSG_PATCHED + 1))
+        fi
+    fi
+
+    # 9b. Check if TrueConf media handling block exists
+    if grep -q 'platform == Platform.TRUECONF and media_files' "$SEND_MSG_TOOL" 2>/dev/null; then
+        log_skip "TrueConf media handling block"
+    else
+        log_patch "Adding TrueConf media handling to send_message_tool.py..."
+        python3 - "$SEND_MSG_TOOL" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if 'platform == Platform.TRUECONF and media_files' in content:
+    sys.exit(0)
+
+# Find the marker: "# --- Non-media platforms ---"
+marker = '# --- Non-media platforms ---'
+if marker not in content:
+    print("SKIP: Non-media platforms marker not found")
+    sys.exit(0)
+
+trueconf_block = '''    # --- TrueConf: special handling for media attachments ---
+    if platform == Platform.TRUECONF and media_files:
+        last_result = None
+        for i, chunk in enumerate(chunks):
+            is_last = (i == len(chunks) - 1)
+            result = await _send_trueconf(
+                pconfig.extra,
+                chat_id,
+                chunk,
+                media_files=media_files if is_last else [],
+            )
+            if isinstance(result, dict) and result.get("error"):
+                return result
+            last_result = result
+        return last_result
+
+'''
+
+content = content.replace(marker, trueconf_block + marker, 1)
+with open(path, 'w') as f:
+    f.write(content)
+print("OK")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "TrueConf media handling block added"
+            SEND_MSG_PATCHED=$((SEND_MSG_PATCHED + 1))
+        fi
+    fi
+
+    PATCHED=$((PATCHED + SEND_MSG_PATCHED))
+else
+    echo "  ⚠ tools/send_message_tool.py not found — skipping"
+fi
+
+# ───────────────────────────────────────────
 # Done
 # ───────────────────────────────────────────
 echo ""

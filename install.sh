@@ -184,6 +184,7 @@ fi
 if [ "$SKIP_CONFIG" != "true" ]; then
     ask "TrueConf server address (e.g.: video.company.com):"
     read -r -p "  Enter: " TRUECONF_SERVER
+    TRUECONF_SERVER=$(echo "$TRUECONF_SERVER" | tr -d '\r\n\t' | sed 's/[^a-zA-Z0-9._-]//g')
     [ -z "$TRUECONF_SERVER" ] && die "Server address cannot be empty"
 
     ask "Bot login (e.g.: bot_username):"
@@ -237,7 +238,7 @@ if [ "$SKIP_CONFIG" != "true" ]; then
         echo "TRUECONF_SERVER=${TRUECONF_SERVER}"
         echo "TRUECONF_USERNAME=${TRUECONF_USERNAME}"
         echo "TRUECONF_PASSWORD=${TRUECONF_PASSWORD}"
-        echo "TRUECONF_USE_SSL=y"
+        echo "TRUECONF_USE_SSL=true"
         echo "TRUECONF_VERIFY_SSL=false"
         echo "TRUECONF_ALLOW_ALL_USERS=${ALLOW_ALL_USERS}"
         echo "TRUECONF_ALLOWED_USERS=${ALLOWED_USERS:-}"
