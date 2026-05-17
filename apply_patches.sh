@@ -655,52 +655,13 @@ PYEOF
         log_skip "TrueConf in send_message routing"
     else
         log_patch "Adding TrueConf to send_message routing..."
-        sed -i '/Platform.QQBOT:.*_send_qqbot/a\        elif platform == Platform.TRUECONF:\n            result = await _send_trueconf(pconfig.extra, chat_id, chunk)' "$SEND_PY"
+        sed -i '/Platform.QQBOT:.*_send_qqbot/a\        elif platform == Platform.TRUECONF:\n            return await _send_trueconf(pconfig.extra, chat_id, chunk, media_files=media_files)' "$SEND_PY"
         log_ok "TrueConf added to send_message routing"
         SEND_PATCHED=$((SEND_PATCHED + 1))
     fi
 
-    # TrueConf media handling block
-    if grep -q 'TrueConf.*special handling.*media' "$SEND_PY" 2>/dev/null; then
-        log_skip "TrueConf media handling block"
-    else
-        log_patch "Adding TrueConf media handling block..."
-        python3 - "$SEND_PY" << 'PYEOF'
-import sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    content = f.read()
-
-if 'TrueConf.*special handling.*media' in content or '# --- TrueConf: special handling for media' in content:
-    sys.exit(0)
-
-marker = '    # --- Non-media platforms ---'
-block = '''    # --- TrueConf: special handling for media attachments ---
-    if platform == Platform.TRUECONF and media_files:
-        last_result = None
-        for i, chunk in enumerate(chunks):
-            is_last = (i == len(chunks) - 1)
-            result = await _send_trueconf(
-                pconfig.extra,
-                chat_id,
-                chunk,
-                media_files=media_files if is_last else [],
-            )
-            if isinstance(result, dict) and result.get("error"):
-                return result
-            last_result = result
-        return last_result
-
-'''
-
-content = content.replace(marker, block + marker, 1)
-with open(path, 'w') as f:
-    f.write(content)
-print("OK")
-PYEOF
-        log_ok "TrueConf media handling block added"
-        SEND_PATCHED=$((SEND_PATCHED + 1))
-    fi
+    # Note: TrueConf media handling is done by the elif block above (line 658)
+    # which passes media_files to _send_trueconf. No separate block needed.
 
     PATCHED=$((PATCHED + SEND_PATCHED))
 fi
