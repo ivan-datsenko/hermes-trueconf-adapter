@@ -833,6 +833,46 @@ else
 fi
 
 # ───────────────────────────────────────────
+# 10. run.py — TrueConf media delivery without streaming
+# ───────────────────────────────────────────
+# TrueConf doesn't support streaming, so MEDIA: files in agent responses
+# are never delivered. This patch adds TrueConf to the media delivery
+# condition so _deliver_media_from_response is called for TrueConf
+# even when already_sent is False.
+RUN_PY="${HERMES_DIR}/gateway/run.py"
+
+if [ -f "$RUN_PY" ]; then
+    if grep -q 'source.platform == Platform.TRUECONF' "$RUN_PY" 2>/dev/null; then
+        log_skip "TrueConf media delivery in run.py"
+    else
+        log_patch "Adding TrueConf media delivery to run.py..."
+        python3 - "$RUN_PY" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+old = 'if agent_result.get("already_sent") and not agent_result.get("failed"):'
+new = 'if (agent_result.get("already_sent") or source.platform == Platform.TRUECONF) and not agent_result.get("failed"):'
+
+if old in content:
+    content = content.replace(old, new, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP: target line not found")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "TrueConf media delivery added to run.py"
+            PATCHED=$((PATCHED + 1))
+        fi
+    fi
+else
+    echo "  ⚠ gateway/run.py not found — skipping"
+fi
+
+# ───────────────────────────────────────────
 # Done
 # ───────────────────────────────────────────
 echo ""
