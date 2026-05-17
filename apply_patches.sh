@@ -848,6 +848,71 @@ else
 fi
 
 # ───────────────────────────────────────────
+# 7. tools/send_message_tool.py — add trueconf to media platforms
+# ───────────────────────────────────────────
+SEND_MSG_TOOL="${HERMES_DIR}/tools/send_message_tool.py"
+
+if [ -f "$SEND_MSG_TOOL" ]; then
+    SEND_MSG_PATCHED=0
+
+    # 7a. Add trueconf to the error message list (line ~708)
+    if grep -q 'telegram, discord, matrix, weixin, signal, yuanbao and feishu' "$SEND_MSG_TOOL" 2>/dev/null; then
+        log_patch "Adding trueconf to send_message media platforms (error message)..."
+        sed -i 's/telegram, discord, matrix, weixin, signal, yuanbao and feishu/telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf/g' "$SEND_MSG_TOOL"
+        log_ok "trueconf added to error message list"
+        SEND_MSG_PATCHED=$((SEND_MSG_PATCHED + 1))
+    else
+        log_skip "trueconf in error message list"
+    fi
+
+    # 7b. Add trueconf to the warning message list (line ~716)
+    if grep -q 'telegram, discord, matrix, weixin, signal, yuanbao and feishu' "$SEND_MSG_TOOL" 2>/dev/null; then
+        log_patch "Adding trueconf to send_message media platforms (warning message)..."
+        sed -i 's/telegram, discord, matrix, weixin, signal, yuanbao and feishu/telegram, discord, matrix, weixin, signal, yuanbao, feishu and trueconf/g' "$SEND_MSG_TOOL"
+        log_ok "trueconf added to warning message list"
+        SEND_MSG_PATCHED=$((SEND_MSG_PATCHED + 1))
+    else
+        log_skip "trueconf in warning message list"
+    fi
+
+    # 7c. Add trueconf to the platform mapping dict (for send_message target resolution)
+    if grep -q '"trueconf": Platform.TRUECONF' "$SEND_MSG_TOOL" 2>/dev/null; then
+        log_skip "trueconf in platform mapping dict"
+    else
+        log_patch "Adding trueconf to platform mapping dict..."
+        python3 - "$SEND_MSG_TOOL" << 'PYEOF'
+import sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+if '"trueconf": Platform.TRUECONF' in content:
+    sys.exit(0)
+
+# Find the platform mapping dict and add trueconf
+# Look for the pattern: "feishu": Platform.FEISHU,
+marker = '"feishu": Platform.FEISHU,'
+if marker in content:
+    replacement = marker + '\n    "trueconf": Platform.TRUECONF,'
+    content = content.replace(marker, replacement, 1)
+    with open(path, 'w') as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP: feishu marker not found")
+PYEOF
+        if [ $? -eq 0 ]; then
+            log_ok "trueconf added to platform mapping dict"
+            SEND_MSG_PATCHED=$((SEND_MSG_PATCHED + 1))
+        fi
+    fi
+
+    PATCHED=$((PATCHED + SEND_MSG_PATCHED))
+else
+    echo "  ⚠ tools/send_message_tool.py not found — skipping"
+fi
+
+# ───────────────────────────────────────────
 # Summary
 # ───────────────────────────────────────────
 echo ""
